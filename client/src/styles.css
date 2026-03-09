@@ -1,0 +1,177 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ─── Design tokens ─────────────────────────────────────────────────────────── */
+:root {
+  /* Brand palette */
+  --c-bg:          #060a10;
+  --c-surface:     #0d1525;
+  --c-surface-2:   #111e35;
+  --c-border:      rgba(56, 189, 248, 0.18);
+  --c-border-dim:  rgba(100, 116, 139, 0.2);
+
+  /* Electric blue */
+  --c-blue:        #38bdf8;      /* sky-400  */
+  --c-blue-bright: #7dd3fc;      /* sky-300  */
+  --c-blue-glow:   rgba(56, 189, 248, 0.55);
+  --c-blue-soft:   rgba(56, 189, 248, 0.12);
+
+  /* Cyan electric */
+  --c-cyan:        #22d3ee;      /* cyan-400 */
+  --c-cyan-glow:   rgba(34, 211, 238, 0.4);
+
+  /* Greens / reds for PnL */
+  --c-green:       #34d399;
+  --c-red:         #f87171;
+
+  font-family: 'Space Grotesk', ui-sans-serif, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  color-scheme: dark;
+}
+
+/* ─── Reset ─────────────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body, #root { min-height: 100%; }
+
+body {
+  margin: 0;
+  background: var(--c-bg);
+}
+
+button { cursor: pointer; }
+
+/* ─── Typography ────────────────────────────────────────────────────────────── */
+.font-mono {
+  font-family: 'Space Mono', ui-monospace, monospace;
+}
+
+/* ─── Custom cursor ─────────────────────────────────────────────────────────── */
+@media (pointer: fine) {
+  * { cursor: none !important; }
+}
+
+/* ─── Keyframes ─────────────────────────────────────────────────────────────── */
+@keyframes thunder-pulse {
+  0%          { opacity: 0; }
+  5%          { opacity: 0.8; }
+  10%         { opacity: 0; }
+  15%         { opacity: 0.5; }
+  20%         { opacity: 0; }
+  100%        { opacity: 0; }
+}
+
+@keyframes electric-sweep {
+  0%          { transform: translateX(-100%) skewX(-15deg); }
+  50%, 100%   { transform: translateX(200%) skewX(-15deg); }
+}
+
+@keyframes electric-sweep-reverse {
+  0%          { transform: translateX(200%) skewX(-15deg); }
+  50%, 100%   { transform: translateX(-100%) skewX(-15deg); }
+}
+
+@keyframes neon-flicker {
+  0%   { text-shadow: 0 0 12px var(--c-blue-glow); opacity: 1; }
+  2%   { text-shadow: none; opacity: 0.75; }
+  4%   { text-shadow: 0 0 24px var(--c-blue), 0 0 4px var(--c-cyan); opacity: 1; }
+  6%   { text-shadow: none; opacity: 0.6; }
+  8%   { text-shadow: 0 0 18px var(--c-blue-glow); opacity: 1; }
+  100% { text-shadow: 0 0 12px var(--c-blue-glow); opacity: 1; }
+}
+
+@keyframes border-glow-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 var(--c-blue-soft); }
+  50%       { box-shadow: 0 0 16px 2px var(--c-blue-soft); }
+}
+
+@keyframes ticker-slide {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-50%); }
+}
+
+/* ─── Scrollbars ────────────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: rgba(56, 189, 248, 0.2);
+  border-radius: 99px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(56, 189, 248, 0.45);
+}
+
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+/* ─── React Grid Layout ─────────────────────────────────────────────────────── */
+.react-grid-layout {
+  position: relative;
+  transition: height 200ms ease;
+}
+
+.react-grid-item {
+  transition: all 200ms ease;
+  transition-property: left, top;
+}
+
+.react-grid-item.cssTransforms {
+  transition-property: transform;
+}
+
+.react-grid-item.resizing {
+  z-index: 1;
+  will-change: width, height;
+}
+
+.react-grid-item.react-draggable-dragging {
+  transition: none;
+  z-index: 9999;
+  will-change: transform;
+  box-shadow:
+    0 0 0 1px var(--c-blue),
+    0 0 40px var(--c-blue-glow),
+    0 20px 60px rgba(0,0,0,0.6);
+  border-radius: 20px;
+  transform: scale(1.02) !important;
+  opacity: 0.95;
+}
+
+.react-grid-item.react-grid-placeholder {
+  background: rgba(56, 189, 248, 0.08) !important;
+  border: 1.5px dashed var(--c-blue) !important;
+  border-radius: 20px;
+  transition-duration: 100ms;
+  z-index: 2;
+  user-select: none;
+}
+
+/* ─── Resize handle ─────────────────────────────────────────────────────────── */
+.react-resizable-handle {
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  bottom: 0;
+  right: 0;
+  cursor: se-resize;
+}
+
+.react-resizable-handle::after {
+  content: '';
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  width: 8px;
+  height: 8px;
+  border-right: 2px solid rgba(56, 189, 248, 0.3);
+  border-bottom: 2px solid rgba(56, 189, 248, 0.3);
+  border-radius: 1px;
+  transition: all 0.2s;
+}
+
+.react-grid-item:hover .react-resizable-handle::after {
+  border-color: var(--c-blue);
+  box-shadow: 3px 3px 8px var(--c-blue-glow);
+}
