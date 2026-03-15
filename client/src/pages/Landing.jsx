@@ -1,3 +1,4 @@
+import { useCallback, useState } from 'react'
 import { motion } from 'framer-motion'
 import {
   Activity, BarChart3, Bolt, Brain, CandlestickChart, ChevronRight,
@@ -5,9 +6,9 @@ import {
 } from 'lucide-react'
 import SolidBlock from '../components/SolidBlock'
 import ElectricButton from '../components/ElectricButton'
-import TinyChart from '../components/TinyChart'
+import LiveBtcChart from '../components/LiveBtcChart'
 import logo from '../assets/thornado-hammer.png'
-
+import logo2 from '../assets/thornado_flashes.png'
 const stats = [
   { label: 'Latency',        value: '12ms'   },
   { label: 'AI Confidence',  value: '91%'    },
@@ -41,6 +42,27 @@ const aiCards = [
   },
 ]
 
+const aiTrendMessagesFallback = [
+  { text: 'Bullish above 108,200. Watch for retest of support.', tag: 'bias' },
+  { text: 'Momentum building. Consider scaling in on pullbacks.', tag: 'plan' },
+  { text: 'Volatility compressing — expansion likely next session.', tag: 'risk' },
+]
+
+function getBotTagColor(tag) {
+  switch (tag) {
+    case 'risk':
+      return 'text-rose-700 font-medium'
+    case 'bias':
+      return 'text-sky-400'
+    case 'plan':
+      return 'text-amber-400'
+    case 'target':
+      return 'text-emerald-400'
+    default:
+      return 'text-sky-400/70'
+  }
+}
+
 // ─── Shared small components ──────────────────────────────────────────────────
 function SectionLabel({ icon: Icon, children }) {
   return (
@@ -69,6 +91,13 @@ function ColTitle({ children }) {
 
 // ─── Landing page ─────────────────────────────────────────────────────────────
 export default function Landing({ onLaunch }) {
+  const [botMessages, setBotMessages] = useState([])
+
+  const handleBotMessage = useCallback((msg) => {
+    setBotMessages(prev => [{ ...msg, id: Date.now() }, ...prev].slice(0, 3))
+  }, [])
+
+  const messagesToShow = botMessages.length > 0 ? botMessages : aiTrendMessagesFallback
   return (
     <div className="w-full text-white">
 
@@ -124,7 +153,10 @@ export default function Landing({ onLaunch }) {
               <ElectricButton className="h-12 px-7 text-sm font-medium">
                 View demo
               </ElectricButton>
-              <span className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-1.5 text-xs font-medium text-emerald-300">
+              <span
+                className="inline-flex h-12 items-center justify-center rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-7 text-sm font-medium text-emerald-300"
+                aria-label="Free during MVP"
+              >
                 Free during MVP
               </span>
             </div>
@@ -144,25 +176,34 @@ export default function Landing({ onLaunch }) {
             </div>
           </div>
 
-          {/* Right: Market pulse — chart + watchlist */}
+          {/* Right: SOMETOKEN-USDT live chart + AI trend chat */}
           <div className="hidden lg:block">
-            <SolidBlock className="p-5">
+            <SolidBlock className="flex flex-col p-5">
               <div className="text-[10px] font-medium uppercase tracking-[0.18em] text-sky-400/60">
-                Market pulse
+                SOMETOKEN-USDT
               </div>
-              <div className="mt-3 h-[140px] w-full min-w-0">
-                <TinyChart />
+              <div className="mt-2 w-full min-w-0 flex-1">
+                <LiveBtcChart onBotMessage={handleBotMessage} />
               </div>
               <div className="mt-4 border-t border-sky-400/12 pt-3">
-                <div className="text-[10px] font-medium uppercase tracking-wider text-sky-400/60 mb-2">Markets</div>
-                <div className="space-y-1.5">
-                  {watchlist.map(({ pair, price, change, up }) => (
-                    <div key={pair} className="flex items-center justify-between text-sm">
-                      <span className="font-medium text-white">{pair}</span>
-                      <span className="font-mono text-slate-300">{price}</span>
-                      <span className={`font-mono text-xs ${up ? 'text-emerald-400' : 'text-red-400'}`}>
-                        {change}
+                <div className="mb-2 flex items-center gap-2">
+                  <div className="flex h-6 w-6 items-center justify-center rounded-md border border-sky-400/30 bg-sky-400/10">
+                    <Brain className="h-3 w-3 text-sky-300" />
+                  </div>
+                  <span className="text-[10px] font-medium uppercase tracking-wider text-sky-400/60">
+                    AI trend
+                  </span>
+                </div>
+                <div className="space-y-2 rounded-lg border border-sky-400/10 bg-[#0d1a2e]/80 p-2.5">
+                  {messagesToShow.map((msg, i) => (
+                    <div
+                      key={msg.id ?? i}
+                      className="flex gap-2 text-left text-xs leading-snug"
+                    >
+                      <span className={`shrink-0 font-mono ${getBotTagColor(msg.tag)}`}>
+                        [{msg.tag}]
                       </span>
+                      <span className="text-slate-300">{msg.text}</span>
                     </div>
                   ))}
                 </div>
@@ -339,10 +380,10 @@ export default function Landing({ onLaunch }) {
                   <div className="relative flex h-full items-center justify-center overflow-hidden rounded-lg border border-slate-300/25 bg-slate-100 p-5">
                     <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,rgba(255,255,255,0.8),transparent_65%)] pointer-events-none" />
                     <img
-                      src={logo}
+                      src={logo2}
                       alt="THORNado hammer logo"
                       className="relative z-10 max-h-full max-w-full object-contain drop-shadow-xl"
-                      style={{ transform: 'scale(3)', filter: 'invert(1)' }}
+                      style={{ transform: 'scale(2)' }}
                     />
                   </div>
                 </div>
