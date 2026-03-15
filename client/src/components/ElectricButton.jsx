@@ -50,11 +50,13 @@ export default function ElectricButton({
       {/* Thunder flash overlay */}
       <div className="pointer-events-none absolute inset-0 z-0 bg-sky-400/20 mix-blend-overlay opacity-0 group-hover:animate-[thunder-pulse_2.5s_infinite]" />
 
-      {/* Electric sweep lines — primary only */}
+      {/* Electric sweep lines — primary only (all four edges) */}
       {primary && (
         <>
           <div className="absolute inset-x-0 top-0 h-[2px] w-[200%] -translate-x-full bg-gradient-to-r from-transparent via-sky-300 to-transparent opacity-0 shadow-[0_0_12px_rgba(125,211,252,1)] group-hover:animate-[electric-sweep_1.8s_infinite] group-hover:opacity-100" />
           <div className="absolute inset-x-0 bottom-0 h-[2px] w-[200%] translate-x-full bg-gradient-to-l from-transparent via-cyan-300 to-transparent opacity-0 shadow-[0_0_12px_rgba(103,232,249,1)] group-hover:animate-[electric-sweep-reverse_1.8s_infinite] group-hover:opacity-100" />
+          <div className="absolute left-0 inset-y-0 w-[2px] h-[200%] -translate-y-full bg-gradient-to-b from-transparent via-sky-300 to-transparent opacity-0 shadow-[0_0_12px_rgba(125,211,252,1)] group-hover:animate-[electric-sweep-vertical_1.8s_infinite] group-hover:opacity-100" />
+          <div className="absolute right-0 inset-y-0 w-[2px] h-[200%] translate-y-full bg-gradient-to-t from-transparent via-cyan-300 to-transparent opacity-0 shadow-[0_0_12px_rgba(103,232,249,1)] group-hover:animate-[electric-sweep-vertical-reverse_1.8s_infinite] group-hover:opacity-100" />
         </>
       )}
 

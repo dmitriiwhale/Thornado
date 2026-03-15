@@ -73,6 +73,16 @@ button { cursor: pointer; }
   50%, 100%   { transform: translateX(-100%) skewX(-15deg); }
 }
 
+@keyframes electric-sweep-vertical {
+  0%          { transform: translateY(-100%) skewY(-15deg); }
+  50%, 100%   { transform: translateY(200%) skewY(-15deg); }
+}
+
+@keyframes electric-sweep-vertical-reverse {
+  0%          { transform: translateY(200%) skewY(-15deg); }
+  50%, 100%   { transform: translateY(-100%) skewY(-15deg); }
+}
+
 @keyframes neon-flicker {
   0%   { text-shadow: 0 0 12px var(--c-blue-glow); opacity: 1; }
   2%   { text-shadow: none; opacity: 0.75; }
