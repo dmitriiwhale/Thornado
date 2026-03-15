@@ -266,6 +266,53 @@ export default function Landing({ onLaunch }) {
               </SolidBlock>
             ))}
           </div>
+
+          {/* Chat thread: user message + THOR AI reply (appear on scroll with delay) */}
+          <div className="mt-14 flex justify-center">
+            <SolidBlock className="w-full max-w-4xl p-7">
+              <div className="mb-5 flex items-center gap-2">
+                <MessageCircle className="h-5 w-5 text-sky-400" />
+                <span className="text-sm font-medium uppercase tracking-wider text-sky-400/80">
+                  Try THOR AI
+                </span>
+              </div>
+              <div className="space-y-6">
+                <motion.div
+                  className="flex items-start gap-4"
+                  initial={{ opacity: 0, y: 14 }}
+                  whileInView={{ opacity: 1, y: 0 }}
+                  viewport={{ once: true, margin: '-30px' }}
+                  transition={{ duration: 0.4, delay: 0.15 }}
+                >
+                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-slate-600/80 text-sm font-medium text-slate-300">
+                    You
+                  </div>
+                  <div className="rounded-2xl rounded-tl-md border border-slate-500/30 bg-slate-700/40 px-5 py-3.5">
+                    <p className="text-base text-slate-200">
+                      Can you help with entries and risk?
+                    </p>
+                  </div>
+                </motion.div>
+                <motion.div
+                  className="flex items-start gap-4"
+                  initial={{ opacity: 0, y: 14 }}
+                  whileInView={{ opacity: 1, y: 0 }}
+                  viewport={{ once: true, margin: '-30px' }}
+                  transition={{ duration: 0.4, delay: 0.7 }}
+                >
+                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-sky-400/30 bg-sky-400/10">
+                    <Brain className="h-5 w-5 text-sky-300" />
+                  </div>
+                  <div className="rounded-2xl rounded-tl-md border border-sky-400/25 bg-sky-400/10 px-5 py-3.5">
+                    <p className="text-sm font-medium text-sky-200/90">THOR AI</p>
+                    <p className="mt-1 text-base leading-6 text-slate-200">
+                      Yes. I can highlight momentum shifts, suggest levels, and flag risk. Launch the terminal and ask me anything — I’ll keep it short and actionable.
+                    </p>
+                  </div>
+                </motion.div>
+              </div>
+            </SolidBlock>
+          </div>
         </motion.section>
 
         {/* ════ VISION & GOALS ════ */}
@@ -484,8 +531,15 @@ export default function Landing({ onLaunch }) {
           viewport={{ once: true, margin: '-40px' }}
           transition={{ duration: 0.4 }}
         >
-          <SolidBlock className="relative overflow-hidden px-8 py-12 text-center md:px-12">
-            <div className="absolute inset-0 bg-[radial-gradient(ellipse_80%_60%_at_50%_50%,rgba(56,189,248,0.12),transparent)] pointer-events-none" />
+          <div
+            className="relative overflow-hidden rounded-[20px] px-8 py-12 text-center md:px-12"
+            style={{
+              background: 'linear-gradient(180deg, rgba(56,189,248,0.06) 0%, rgba(56,189,248,0.1) 50%, rgba(56,189,248,0.06) 100%)',
+              border: '1px solid rgba(56,189,248,0.22)',
+              boxShadow: '0 0 0 0 transparent, inset 0 1px 0 rgba(125,211,252,0.08)',
+            }}
+          >
+            <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-sky-300/25 to-transparent" />
             <h2 className="relative text-2xl font-bold tracking-tight text-white md:text-3xl">
               Start trading on Nado — free during MVP
             </h2>
@@ -500,13 +554,13 @@ export default function Landing({ onLaunch }) {
                 Free during MVP
               </span>
             </div>
-          </SolidBlock>
+          </div>
         </motion.section>
 
         {/* ════ FOOTER ════ */}
         <footer className="mt-16 flex flex-wrap items-center justify-between gap-4 border-t border-sky-400/15 pt-8">
           <div className="flex items-center gap-3">
-            <img src={logo} alt="" className="h-8 w-8 object-contain opacity-90" style={{ filter: 'invert(1)' }} />
+            <img src={logo} alt="" className="h-8 w-8 object-contain opacity-90" style={{ filter: 'invert(1)', transform: 'scale(1.5)' }} />
             <span className="text-sm text-slate-400">
               Thornado — Trading Terminal for DEX Nado
             </span>
