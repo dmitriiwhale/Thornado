@@ -2,13 +2,13 @@ import { useCallback, useState } from 'react'
 import { motion } from 'framer-motion'
 import {
   Activity, BarChart3, Bolt, Brain, CandlestickChart, ChevronRight,
-  Clock3, LayoutGrid, Keyboard, Target, TrendingUp, Users, Wallet, Zap,
+  Clock3, ExternalLink, LayoutGrid, Keyboard, MessageCircle, Target, TrendingUp, Users, Wallet, Zap,
 } from 'lucide-react'
 import SolidBlock from '../components/SolidBlock'
 import ElectricButton from '../components/ElectricButton'
 import LiveBtcChart from '../components/LiveBtcChart'
 import logo from '../assets/thornado-hammer.png'
-import logo2 from '../assets/thornado_flashes.png'
+import nadoLogo from '../assets/nado-logo.png'
 const stats = [
   { label: 'Latency',        value: '12ms'   },
   { label: 'AI Confidence',  value: '91%'    },
@@ -358,39 +358,122 @@ export default function Landing({ onLaunch }) {
             </div>
           </SolidBlock>
 
-          {/* Right */}
+          {/* Right: Designed for speed */}
           <SolidBlock className="p-6">
-            <div className="grid h-full grid-cols-2 gap-6 items-center">
-              <div className="flex flex-col justify-center">
-                <ColLabel>Logo direction</ColLabel>
-                <div className="mt-2 text-2xl font-semibold tracking-tight text-white">
-                  Hammer icon as the core mark
+            <SectionLabel icon={Keyboard}>Designed for speed</SectionLabel>
+            <div className="mt-4 text-lg font-semibold tracking-tight text-white">
+              Hotkeys and presets
+            </div>
+            <p className="mt-2 text-sm leading-6 text-slate-400">
+              Place, cancel, and flip orders without leaving the chart. Power users get the edge.
+            </p>
+            <div className="mt-4 flex flex-wrap gap-2">
+              {[
+                ['Place', 'Enter'],
+                ['Cancel', 'Esc'],
+                ['Flip side', 'F'],
+              ].map(([label, key]) => (
+                <div
+                  key={label}
+                  className="flex items-center gap-2 rounded-lg border border-sky-400/20 bg-[#0d1a2e] px-3 py-2 font-mono text-xs"
+                >
+                  <span className="text-slate-400">{label}</span>
+                  <kbd className="rounded border border-slate-500/50 bg-slate-800/80 px-1.5 py-0.5 text-sky-300">
+                    {key}
+                  </kbd>
                 </div>
-                <p className="mt-3 text-sm leading-7 text-slate-400">
-                  Your hammer artwork is wired into navigation and the logo area —
-                  preview the identity in context right away.
-                </p>
-                <button className="mt-5 inline-flex w-fit items-center gap-2 rounded-xl border border-sky-400/30 bg-sky-400/10 px-4 py-2.5 text-sm text-sky-300 hover:bg-sky-400/15 transition-colors">
-                  Ready for next iteration
-                  <ChevronRight className="h-4 w-4" />
-                </button>
-              </div>
-              <div className="rounded-2xl border border-sky-400/12 bg-[#0d1a2e] p-4">
-                <div className="aspect-square rounded-xl border border-slate-700/40 bg-[#080e1a] p-4">
-                  <div className="relative flex h-full items-center justify-center overflow-hidden rounded-lg border border-slate-300/25 bg-slate-100 p-5">
-                    <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,rgba(255,255,255,0.8),transparent_65%)] pointer-events-none" />
-                    <img
-                      src={logo2}
-                      alt="THORNado hammer logo"
-                      className="relative z-10 max-h-full max-w-full object-contain drop-shadow-xl"
-                      style={{ transform: 'scale(2)' }}
-                    />
-                  </div>
-                </div>
-              </div>
+              ))}
             </div>
           </SolidBlock>
 
+        </section>
+
+        {/* ════ BUILT FOR NADO + COMMUNITY ════ */}
+        <section className="mt-10 grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <SolidBlock className="p-6 overflow-hidden">
+            <SectionLabel icon={Zap}>Built for Nado</SectionLabel>
+            <div className="mt-5 flex flex-col gap-5">
+              <div className="relative flex items-center gap-5 rounded-2xl border border-sky-400/20 bg-gradient-to-br from-sky-400/5 to-cyan-400/5 p-4">
+                <div className="absolute inset-0 rounded-2xl bg-[radial-gradient(ellipse_80%_50%_at_50%_0%,rgba(56,189,248,0.08),transparent)] pointer-events-none" />
+                <div className="relative flex h-16 w-16 shrink-0 items-center justify-center rounded-xl border border-sky-400/30 bg-sky-400/10 p-2.5 shadow-[0_0_20px_rgba(56,189,248,0.12)]">
+                <img 
+                    src={nadoLogo} 
+                    alt="Nado" 
+                    className="h-full w-full object-contain" 
+                    style={{ 
+                      transform: 'scale(2)',
+                      borderRadius: '8px'  // или любое другое значение
+                    }} 
+                  />
+                  </div>
+                <div className="relative min-w-0">
+                  <div className="text-xl font-semibold tracking-tight text-white">
+                    Native to Nado DEX
+                  </div>
+                  <p className="mt-1 text-sm leading-6 text-slate-400">
+                    Thornado is built for the Nado ecosystem — fast execution and full compatibility.
+                  </p>
+                </div>
+              </div>
+              <ul className="grid grid-cols-2 gap-2">
+                {[
+                  ['Full DEX compatibility', 'Direct integration with Nado order book and execution'],
+                  ['Low latency', 'Optimized for speed and real-time data'],
+                  ['Real-time data', 'Live prices, order flow and funding rates from Nado'],
+                  ['Non-custodial', 'Your keys, your funds — connect wallet and trade directly'],
+                ].map(([title, desc]) => (
+                  <li
+                    key={title}
+                    className="flex items-start gap-3 rounded-xl border border-sky-400/12 bg-[#0d1a2e] px-3 py-2.5"
+                  >
+                    <span className="mt-0.5 h-1.5 w-1.5 shrink-0 rounded-full bg-sky-400" />
+                    <div>
+                      <span className="text-sm font-medium text-white">{title}</span>
+                      <span className="block text-[11px] text-slate-500">{desc}</span>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+              <a
+                href="https://nado.xyz"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="group inline-flex w-fit items-center gap-2 rounded-xl border border-sky-400/40 bg-sky-400/10 px-5 py-3 text-sm font-medium text-sky-200 shadow-[0_0_16px_rgba(56,189,248,0.1)] transition-all hover:border-sky-400/60 hover:bg-sky-400/15 hover:shadow-[0_0_24px_rgba(56,189,248,0.18)]"
+              >
+                nado.xyz
+                <ExternalLink className="h-4 w-4 opacity-80 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
+              </a>
+            </div>
+          </SolidBlock>
+          <SolidBlock className="p-6">
+            <SectionLabel icon={MessageCircle}>Join the community</SectionLabel>
+            <div className="mt-4 text-lg font-semibold tracking-tight text-white">
+              Get help and share feedback
+            </div>
+            <p className="mt-2 text-sm leading-6 text-slate-400">
+              Connect with other traders and the Thornado team. Updates, support, and early access.
+            </p>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <a
+                href="#"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-2 rounded-xl border border-sky-400/25 bg-sky-400/10 px-4 py-2.5 text-sm text-sky-300 hover:bg-sky-400/15 transition-colors"
+              >
+                Telegram
+                <ExternalLink className="h-3.5 w-3.5" />
+              </a>
+              <a
+                href="#"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-2 rounded-xl border border-sky-400/25 bg-sky-400/10 px-4 py-2.5 text-sm text-sky-300 hover:bg-sky-400/15 transition-colors"
+              >
+                Discord
+                <ExternalLink className="h-3.5 w-3.5" />
+              </a>
+            </div>
+          </SolidBlock>
         </section>
 
         {/* ════ FINAL CTA ════ */}
