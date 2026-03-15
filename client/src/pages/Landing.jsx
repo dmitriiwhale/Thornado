@@ -1,8 +1,9 @@
 import { useCallback, useState } from 'react'
 import { motion } from 'framer-motion'
 import {
-  Activity, BarChart3, Bolt, Brain, CandlestickChart, ChevronRight,
-  Clock3, ExternalLink, LayoutGrid, Keyboard, MessageCircle, Target, TrendingUp, Users, Wallet, Zap,
+  Activity, BarChart3, Bolt, BookOpen, Brain, CandlestickChart, ChevronRight,
+  Clock3, ExternalLink, Keyboard, LayoutGrid, MessageCircle, Percent,
+  Target, TrendingUp, Users, Wallet, Zap,
 } from 'lucide-react'
 import SolidBlock from '../components/SolidBlock'
 import ElectricButton from '../components/ElectricButton'
@@ -237,6 +238,58 @@ export default function Landing({ onLaunch }) {
               </SolidBlock>
             ))}
           </div>
+
+          {/* Market data collection engine — flow from Nado to 5 data types */}
+          <motion.div
+            className="mt-10"
+            initial={{ opacity: 0, y: 12 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true, margin: '-40px' }}
+            transition={{ duration: 0.4 }}
+          >
+            <SolidBlock className="overflow-visible p-6">
+              <div className="mb-4 flex items-center gap-2">
+                <Activity className="h-4 w-4 text-sky-400" />
+                <span className="text-xs font-medium uppercase tracking-wider text-sky-400/80">
+                  Market data collection engine
+                </span>
+              </div>
+              <p className="mb-6 text-sm text-slate-400">
+                High-frequency aggregation from Nado DEX — real-time and historical, normalized for the terminal.
+              </p>
+              <div className="flex flex-col items-center gap-6 md:flex-row md:items-center md:gap-4">
+                <div className="flex shrink-0 items-center gap-3 rounded-xl border border-sky-400/25 bg-sky-400/10 px-4 py-3">
+                  <img src={nadoLogo} alt="" className="h-8 w-8 object-contain opacity-90" />
+                  <span className="font-semibold text-white">Nado DEX</span>
+                </div>
+                <div className="flex shrink-0 items-center text-sky-400/50">
+                  <span className="hidden h-px w-8 bg-gradient-to-r from-sky-400/40 to-transparent md:block" />
+                  <ChevronRight className="h-6 w-6 md:mx-1" />
+                  <span className="hidden h-px w-8 flex-1 bg-gradient-to-l from-sky-400/40 to-transparent md:block" />
+                </div>
+                <div className="flex flex-wrap justify-center gap-3">
+                  {[
+                    [Activity, 'Market state', 'Price, volatility, conditions'],
+                    [BarChart3, 'Indicators', 'Built-in + custom formulas'],
+                    [BookOpen, 'Order books', 'Level-2 depth, bids/asks'],
+                    [Users, 'Trader accounts', 'Top performers, positions'],
+                    [Percent, 'Funding rates', 'Real-time and history'],
+                  ].map(([Icon, title, desc]) => (
+                    <div
+                      key={title}
+                      className="flex items-center gap-3 rounded-xl border border-sky-400/15 bg-[#0d1a2e] px-4 py-3.5 transition-colors hover:border-sky-400/30"
+                    >
+                      <Icon className="h-5 w-5 shrink-0 text-sky-400" />
+                      <div className="min-w-0">
+                        <div className="text-sm font-semibold text-white">{title}</div>
+                        <div className="text-xs text-slate-500">{desc}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </SolidBlock>
+          </motion.div>
         </motion.section>
 
         {/* ════ AI AT A GLANCE ════ */}
@@ -419,6 +472,7 @@ export default function Landing({ onLaunch }) {
                 ['Place', 'Enter'],
                 ['Cancel', 'Esc'],
                 ['Flip side', 'F'],
+                ['ADD HOTKEYS HERE, PLS', 'P'],
               ].map(([label, key]) => (
                 <div
                   key={label}
@@ -440,9 +494,9 @@ export default function Landing({ onLaunch }) {
           <SolidBlock className="p-6 overflow-hidden">
             <SectionLabel icon={Zap}>Built for Nado</SectionLabel>
             <div className="mt-5 flex flex-col gap-5">
-              <div className="relative flex items-center gap-5 rounded-2xl border border-sky-400/20 bg-gradient-to-br from-sky-400/5 to-cyan-400/5 p-4">
+              <div className="relative flex items-center gap-5 rounded-2xl border border-sky-400/20 bg-gradient-to-br from-sky-400/5 to-cyan-400/5 p-4 transition-colors hover:border-transparent">
                 <div className="absolute inset-0 rounded-2xl bg-[radial-gradient(ellipse_80%_50%_at_50%_0%,rgba(56,189,248,0.08),transparent)] pointer-events-none" />
-                <div className="relative flex h-16 w-16 shrink-0 items-center justify-center rounded-xl border border-sky-400/30 bg-sky-400/10 p-2.5 shadow-[0_0_20px_rgba(56,189,248,0.12)]">
+                <div className="relative flex h-16 w-16 shrink-0 items-center justify-center rounded-xl border border-sky-400/30 bg-sky-400/10 p-2.5 shadow-[0_0_20px_rgba(56,189,248,0.12)] transition-colors hover:border-transparent">
                 <img 
                     src={nadoLogo} 
                     alt="Nado" 
@@ -471,7 +525,7 @@ export default function Landing({ onLaunch }) {
                 ].map(([title, desc]) => (
                   <li
                     key={title}
-                    className="flex items-start gap-3 rounded-xl border border-sky-400/12 bg-[#0d1a2e] px-3 py-2.5"
+                    className="flex items-start gap-3 rounded-xl border border-sky-400/12 bg-[#0d1a2e] px-3 py-2.5 transition-colors hover:border-transparent"
                   >
                     <span className="mt-0.5 h-1.5 w-1.5 shrink-0 rounded-full bg-sky-400" />
                     <div>
@@ -485,7 +539,7 @@ export default function Landing({ onLaunch }) {
                 href="https://nado.xyz"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="group inline-flex w-fit items-center gap-2 rounded-xl border border-sky-400/40 bg-sky-400/10 px-5 py-3 text-sm font-medium text-sky-200 shadow-[0_0_16px_rgba(56,189,248,0.1)] transition-all hover:border-sky-400/60 hover:bg-sky-400/15 hover:shadow-[0_0_24px_rgba(56,189,248,0.18)]"
+                className="group inline-flex w-fit items-center gap-2 rounded-xl border border-sky-400/40 bg-sky-400/10 px-5 py-3 text-sm font-medium text-sky-200 shadow-[0_0_16px_rgba(56,189,248,0.1)] transition-all hover:border-transparent hover:bg-sky-400/15 hover:shadow-[0_0_24px_rgba(56,189,248,0.18)]"
               >
                 nado.xyz
                 <ExternalLink className="h-4 w-4 opacity-80 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
