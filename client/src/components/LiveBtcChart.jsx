@@ -26,11 +26,32 @@ function formatTime() {
   return d.toTimeString().slice(0, 8)
 }
 
+function generateInitialPriceHistory() {
+  const now = Date.now()
+  const basePrice = (BASE + (Math.random() - 0.5) * 0.3) * 1000
+  const entries = []
+  let price = basePrice
+  for (let i = 0; i < HISTORY_SIZE; i++) {
+    const changePct = (Math.random() - 0.5) * 0.15
+    const prevPrice = price
+    price = prevPrice * (1 + changePct / 100)
+    const up = changePct >= 0
+    const t = new Date(now - (HISTORY_SIZE - 1 - i) * 1100)
+    entries.push({
+      price: Math.round(price),
+      changePct,
+      up,
+      time: t.toTimeString().slice(0, 8),
+    })
+  }
+  return entries.reverse()
+}
+
 export default function LiveBtcChart({ onBotMessage }) {
   const containerRef = useRef(null)
   const [width, setWidth] = useState(400)
   const [points, setPoints] = useState(generateSeed)
-  const [priceHistory, setPriceHistory] = useState([])
+  const [priceHistory, setPriceHistory] = useState(generateInitialPriceHistory)
   const [prediction, setPrediction] = useState(null)
   const predictionRef = useRef(null)
   const pointsRef = useRef(points)
