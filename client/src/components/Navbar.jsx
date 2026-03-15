@@ -36,6 +36,7 @@ export default function Navbar({ activeTab, setActiveTab }) {
               src={logo}
               alt="THORNado logo"
               className="relative z-10 h-full w-full object-contain drop-shadow-[0_0_6px_rgba(255,255,255,0.6)]"
+              style={{ transform: 'scale(3)', filter: 'invert(1)' }}
             />
           </div>
           <div>

@@ -86,7 +86,7 @@ export default function Landing({ onLaunch }) {
       <div className="relative mx-auto max-w-[1920px] px-6 pb-20 pt-6 md:px-10">
 
         {/* ════ HERO ════ */}
-        <section className="grid grid-cols-1 gap-8 pt-10 lg:grid-cols-2 lg:pt-14">
+        <section className="grid grid-cols-1 gap-8 pt-10 lg:grid-cols-2 lg:pt-14 items-start">
 
           {/* Left: copy */}
           <div className="flex flex-col justify-center">
@@ -391,6 +391,7 @@ export default function Landing({ onLaunch }) {
                       src={logo}
                       alt="THORNado hammer logo"
                       className="relative z-10 max-h-full max-w-full object-contain drop-shadow-xl"
+                      style={{ transform: 'scale(3)', filter: 'invert(1)' }}
                     />
                   </div>
                 </div>
