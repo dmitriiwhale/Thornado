@@ -1,0 +1,16 @@
+{
+  "name": "thornado-project",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "install:all": "npm install --prefix client && npm install --prefix server",
+    "dev": "node dev-runner.js",
+    "build": "npm run build --prefix client",
+    "home:anchor": "node scripts/home-anchor.js seal",
+    "home:check": "node scripts/home-anchor.js check",
+    "home:restore": "node scripts/home-anchor.js restore"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}

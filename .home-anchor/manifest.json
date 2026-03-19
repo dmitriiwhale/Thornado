@@ -1,0 +1,30 @@
+{
+  "createdAt": "2026-03-19T09:04:42.093Z",
+  "files": [
+    {
+      "path": "client/src/pages/Landing.jsx",
+      "sha256": "63f6cd4ef904f7c34d3966d8b1c53b5f10391dc8b55947ab22ccc2d1fb24848f",
+      "bytes": 23675
+    },
+    {
+      "path": "client/src/components/LiveBtcChart.jsx",
+      "sha256": "865fce49a9e0bf85257a170ae0cf0d038a902d289ae4a52bebd42db8b4b99da3",
+      "bytes": 8403
+    },
+    {
+      "path": "client/src/components/ScrollReveal.jsx",
+      "sha256": "a8399b23f027c75871905c29386728270a323e14b70c57fd254f7394517e6e78",
+      "bytes": 2881
+    },
+    {
+      "path": "client/src/components/SplitTextScroll.jsx",
+      "sha256": "68baa3f56ca237659993289957a9585634cafb4849cf667a289edb110d3c4470",
+      "bytes": 4084
+    },
+    {
+      "path": "client/src/styles.css",
+      "sha256": "c652656c06c3eea9c886746dda490105779f26fcaf72a6ca907646feae3f1e5a",
+      "bytes": 27959
+    }
+  ]
+}
