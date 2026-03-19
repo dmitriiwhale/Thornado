@@ -19,6 +19,7 @@ import LiveBtcChart from '../components/LiveBtcChart'
 import ScrollReveal from '../components/ScrollReveal'
 import SplitTextScroll from '../components/SplitTextScroll'
 import nadoLogo from '../assets/nado.png'
+import getScrollContainer from '../utils/getScrollContainer'
 
 gsap.registerPlugin(ScrollTrigger)
 
@@ -75,6 +76,13 @@ const executionSteps = [
     title: 'Execute clean',
     text: 'Enter by plan, manage by levels, and adjust without breaking process.',
   },
+]
+
+const outcomeNotes = [
+  'Faster decisions with less interface noise.',
+  'Clear invalidation before every entry.',
+  'Consistent routine across every session.',
+  'More focus on execution, less on switching tabs.',
 ]
 
 const nadoPoints = [
@@ -163,10 +171,7 @@ export default function Landing({ onLaunch, scrollContainerRef }) {
     const sectionEl = whySectionRef.current
     if (!sectionEl) return undefined
 
-    const scroller =
-      scrollContainerRef?.current && scrollContainerRef.current !== window
-        ? scrollContainerRef.current
-        : window
+    const scroller = getScrollContainer(scrollContainerRef)
 
     const rows = sectionEl.querySelectorAll('.value-row-card')
     if (!rows.length) return undefined
@@ -461,38 +466,16 @@ export default function Landing({ onLaunch, scrollContainerRef }) {
                 {...executionTitleAnimation}
               />
               <ul className="outcome-list mt-6 text-base text-slate-200">
-                <li className="marketing-note">
-                  <SplitTextScroll
-                    text="Faster decisions with less interface noise."
-                    tag="span"
-                    className=""
-                    {...executionLineAnimation}
-                  />
-                </li>
-                <li className="marketing-note">
-                  <SplitTextScroll
-                    text="Clear invalidation before every entry."
-                    tag="span"
-                    className=""
-                    {...executionLineAnimation}
-                  />
-                </li>
-                <li className="marketing-note">
-                  <SplitTextScroll
-                    text="Consistent routine across every session."
-                    tag="span"
-                    className=""
-                    {...executionLineAnimation}
-                  />
-                </li>
-                <li className="marketing-note">
-                  <SplitTextScroll
-                    text="More focus on execution, less on switching tabs."
-                    tag="span"
-                    className=""
-                    {...executionLineAnimation}
-                  />
-                </li>
+                {outcomeNotes.map((note) => (
+                  <li key={note} className="marketing-note">
+                    <SplitTextScroll
+                      text={note}
+                      tag="span"
+                      className=""
+                      {...executionLineAnimation}
+                    />
+                  </li>
+                ))}
               </ul>
             </div>
           </div>
@@ -597,7 +580,12 @@ export default function Landing({ onLaunch, scrollContainerRef }) {
         <section className="contact-links-shell mt-14">
           <div className="contact-links-title">Connect with us</div>
           <div className="contact-links-row">
-            <a href="#twitter" onClick={handleFakeContactNav} className="contact-link-chip">
+            <a
+              href="https://x.com/Thornadoxyz"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="contact-link-chip"
+            >
               Twitter
             </a>
             <a href="#telegram" onClick={handleFakeContactNav} className="contact-link-chip">

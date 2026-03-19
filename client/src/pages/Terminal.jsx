@@ -24,8 +24,9 @@ const C = {
   bRow:      'border-white/[0.08]',
 };
 
-// Blocks drag propagation вЂ” use on widget body (below drag-handle)
+// Blocks drag propagation; use on widget body (below drag-handle)
 const nodrag = (e) => e.stopPropagation();
+const WIDGET_SHELL_CLASS = 'flex h-full flex-col';
 
 // в”Ђв”Ђв”Ђ Widget Header в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
 const WH = ({ icon: Icon, title, badge, onClose, extra, locked }) => (
@@ -60,11 +61,11 @@ const WH = ({ icon: Icon, title, badge, onClose, extra, locked }) => (
 const ChartWidget = ({ onClose, locked }) => {
   const [tf, setTf] = useState(2);
   return (
-    <div className="flex h-full flex-col">
+    <div className={WIDGET_SHELL_CLASS}>
       <WH icon={BarChart3} title="BTC / USD" onClose={onClose} locked={locked}
         extra={<span className="font-mono text-xs font-bold" style={C.greenGlow}>+2.81%</span>}
       />
-      {/* body вЂ” blocks drag */}
+      {/* body; blocks drag */}
       <div className="flex flex-1 flex-col overflow-hidden" onMouseDown={nodrag}>
         <div className={`flex shrink-0 items-center gap-0.5 border-b ${C.bRow} ${C.bg} px-3 py-1`}>
           {['1m','5m','15m','1h','4h','1D'].map((t, i) => (
@@ -133,7 +134,7 @@ const BookRow = ({ r, side }) => (
 );
 
 const OrderBookWidget = ({ onClose, locked }) => (
-  <div className="flex h-full flex-col">
+  <div className={WIDGET_SHELL_CLASS}>
     <WH icon={AlignLeft} title="Order Book" onClose={onClose} locked={locked} />
     <div className="flex flex-1 flex-col overflow-hidden" onMouseDown={nodrag}>
       <div className={`flex shrink-0 items-center border-b ${C.bRow} px-3 py-1.5`}>
@@ -165,6 +166,16 @@ const AiAssistantWidget = ({ onClose, locked }) => {
   ]);
   const [loading, setLoading] = useState(false);
   const bottomRef = useRef(null);
+  const replyTimerRef = useRef(null);
+
+  useEffect(() => {
+    return () => {
+      if (replyTimerRef.current) {
+        clearTimeout(replyTimerRef.current);
+        replyTimerRef.current = null;
+      }
+    };
+  }, []);
 
   const send = () => {
     if (!input.trim() || loading) return;
@@ -172,16 +183,20 @@ const AiAssistantWidget = ({ onClose, locked }) => {
     setInput('');
     setMsgs(m => [...m, { role: 'user', text: txt }]);
     setLoading(true);
-    setTimeout(() => {
+    if (replyTimerRef.current) {
+      clearTimeout(replyTimerRef.current);
+    }
+    replyTimerRef.current = setTimeout(() => {
       setMsgs(m => [...m, { role: 'ai', text: 'BTC bullish divergence on 15m RSI. Key resistance $108,850. Invalidation $107,600. R/R 1:3.2.' }]);
       setLoading(false);
+      replyTimerRef.current = null;
     }, 1200);
   };
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [msgs, loading]);
 
   return (
-    <div className="flex h-full flex-col">
+    <div className={WIDGET_SHELL_CLASS}>
       <WH icon={Sparkles} title="THORN AI" badge="Live" onClose={onClose} locked={locked} />
       <div className="flex flex-1 flex-col overflow-hidden" onMouseDown={nodrag}>
         <div className="flex-1 overflow-y-auto p-3 space-y-2.5">
@@ -241,8 +256,62 @@ const FIELDS = [
   ['Inval.', '107,920'],
 ];
 
+const EXECUTION_ACTIONS = [
+  {
+    id: 'sell',
+    label: 'Sell',
+    border: 'border-red-500/35',
+    bg: 'bg-red-500/[0.07]',
+    hoverBorder: 'hover:border-red-400/65',
+    hoverBg: 'hover:bg-red-500/[0.16]',
+    topSweep: 'via-red-400',
+    bottomSweep: 'via-red-400',
+    text: 'text-red-300',
+    textHover: 'group-hover:text-red-200',
+    radial: 'radial-gradient(ellipse at 50% 120%, rgba(239,68,68,0.2), transparent 65%)',
+    iconPath: 'M4 7L0.5 1.5h7L4 7z',
+  },
+  {
+    id: 'buy',
+    label: 'Buy',
+    border: 'border-emerald-500/35',
+    bg: 'bg-emerald-500/[0.07]',
+    hoverBorder: 'hover:border-emerald-400/65',
+    hoverBg: 'hover:bg-emerald-500/[0.16]',
+    topSweep: 'via-emerald-400',
+    bottomSweep: 'via-emerald-400',
+    text: 'text-emerald-300',
+    textHover: 'group-hover:text-emerald-200',
+    radial: 'radial-gradient(ellipse at 50% -20%, rgba(52,211,153,0.2), transparent 65%)',
+    iconPath: 'M4 1L7.5 6.5H0.5L4 1z',
+  },
+];
+
+const ExecutionActionButton = ({ action }) => (
+  <button
+    className={`group relative h-7 overflow-hidden rounded-lg border ${action.border} ${action.bg} transition-all duration-200 ${action.hoverBorder} ${action.hoverBg} active:scale-95`}
+  >
+    <div
+      className={`absolute inset-x-0 top-0 h-px w-[200%] -translate-x-full bg-gradient-to-r from-transparent ${action.topSweep} to-transparent opacity-0 group-hover:animate-[electric-sweep_1.6s_infinite] group-hover:opacity-100`}
+    />
+    <div
+      className={`absolute inset-x-0 bottom-0 h-px w-[200%] translate-x-full bg-gradient-to-l from-transparent ${action.bottomSweep} to-transparent opacity-0 group-hover:animate-[electric-sweep-reverse_1.6s_infinite] group-hover:opacity-100`}
+    />
+    <div
+      className="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-300 group-hover:opacity-100"
+      style={{ background: action.radial }}
+    />
+    <span className={`relative z-10 flex items-center justify-center gap-1 text-[10px] font-bold uppercase tracking-widest ${action.text} ${action.textHover}`}>
+      <svg width="6" height="6" viewBox="0 0 8 8" fill="currentColor">
+        <path d={action.iconPath} />
+      </svg>
+      {action.label}
+    </span>
+  </button>
+);
+
 const ExecutionWidget = ({ onClose, locked }) => (
-  <div className="flex h-full flex-col">
+  <div className={WIDGET_SHELL_CLASS}>
     <WH icon={Bolt} title="Order Entry" onClose={onClose} locked={locked} />
     <div className="flex flex-1 flex-col gap-1 p-2 min-h-0" onMouseDown={nodrag}>
       <div className="grid flex-1 grid-cols-2 grid-rows-2 gap-1 min-h-0">
@@ -255,28 +324,9 @@ const ExecutionWidget = ({ onClose, locked }) => (
         ))}
       </div>
       <div className="grid shrink-0 grid-cols-2 gap-1">
-        {/* SELL */}
-        <button className="group relative h-7 overflow-hidden rounded-lg border border-red-500/35 bg-red-500/[0.07] transition-all duration-200 hover:border-red-400/65 hover:bg-red-500/[0.16] active:scale-95">
-          <div className="absolute inset-x-0 top-0 h-px w-[200%] -translate-x-full bg-gradient-to-r from-transparent via-red-400 to-transparent opacity-0 group-hover:animate-[electric-sweep_1.6s_infinite] group-hover:opacity-100" />
-          <div className="absolute inset-x-0 bottom-0 h-px w-[200%] translate-x-full bg-gradient-to-l from-transparent via-red-400 to-transparent opacity-0 group-hover:animate-[electric-sweep-reverse_1.6s_infinite] group-hover:opacity-100" />
-          <div className="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-300 group-hover:opacity-100"
-            style={{ background: 'radial-gradient(ellipse at 50% 120%, rgba(239,68,68,0.2), transparent 65%)' }} />
-          <span className="relative z-10 flex items-center justify-center gap-1 text-[10px] font-bold uppercase tracking-widest text-red-300 group-hover:text-red-200">
-            <svg width="6" height="6" viewBox="0 0 8 8" fill="currentColor"><path d="M4 7L0.5 1.5h7L4 7z"/></svg>
-            Sell
-          </span>
-        </button>
-        {/* BUY */}
-        <button className="group relative h-7 overflow-hidden rounded-lg border border-emerald-500/35 bg-emerald-500/[0.07] transition-all duration-200 hover:border-emerald-400/65 hover:bg-emerald-500/[0.16] active:scale-95">
-          <div className="absolute inset-x-0 top-0 h-px w-[200%] -translate-x-full bg-gradient-to-r from-transparent via-emerald-400 to-transparent opacity-0 group-hover:animate-[electric-sweep_1.6s_infinite] group-hover:opacity-100" />
-          <div className="absolute inset-x-0 bottom-0 h-px w-[200%] translate-x-full bg-gradient-to-l from-transparent via-emerald-400 to-transparent opacity-0 group-hover:animate-[electric-sweep-reverse_1.6s_infinite] group-hover:opacity-100" />
-          <div className="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-300 group-hover:opacity-100"
-            style={{ background: 'radial-gradient(ellipse at 50% -20%, rgba(52,211,153,0.2), transparent 65%)' }} />
-          <span className="relative z-10 flex items-center justify-center gap-1 text-[10px] font-bold uppercase tracking-widest text-emerald-300 group-hover:text-emerald-200">
-            <svg width="6" height="6" viewBox="0 0 8 8" fill="currentColor"><path d="M4 1L7.5 6.5H0.5L4 1z"/></svg>
-            Buy
-          </span>
-        </button>
+        {EXECUTION_ACTIONS.map((action) => (
+          <ExecutionActionButton key={action.id} action={action} />
+        ))}
       </div>
     </div>
   </div>
@@ -290,7 +340,7 @@ const POSITIONS = [
 ];
 
 const PositionsWidget = ({ onClose, locked }) => (
-  <div className="flex h-full flex-col">
+  <div className={WIDGET_SHELL_CLASS}>
     <WH icon={Activity} title="Positions (2)" onClose={onClose} locked={locked}
       extra={<span className="font-mono text-[12px] text-slate-500">PnL: <span className="font-bold" style={C.greenGlow}>+$16,150</span></span>}
     />
@@ -333,7 +383,7 @@ const COINS = [
 ];
 
 const WatchlistWidget = ({ onClose, locked }) => (
-  <div className="flex h-full flex-col">
+  <div className={WIDGET_SHELL_CLASS}>
     <WH icon={Star} title="Watchlist" onClose={onClose} locked={locked} />
     <div className={`flex-1 overflow-auto divide-y ${C.bRow}`} onMouseDown={nodrag}>
       {COINS.map(c => (
@@ -380,14 +430,14 @@ const TRADE_DOWN_STYLE = {
 }
 
 const TradeHistoryWidget = ({ onClose, locked }) => (
-  <div className="flex h-full flex-col">
+  <div className={WIDGET_SHELL_CLASS}>
     <WH icon={Clock} title="Trade History" onClose={onClose} locked={locked} />
     <div className="flex-1 overflow-auto" onMouseDown={nodrag}>
       <table className="w-full">
         <thead className={`${C.bg} sticky top-0`}>
           <tr>
             {[['Time','left'],['Side','left'],['Price','right'],['PnL','right']].map(([h,a]) => (
-              <th key={h} className={`py-2 px-3 text-[11px] font-medium uppercase tracking-wider text-slate-500 text-${a}`}>{h}</th>
+              <th key={h} className={`py-2 px-3 text-[11px] font-medium uppercase tracking-wider text-slate-500 ${a === 'right' ? 'text-right' : 'text-left'}`}>{h}</th>
             ))}
           </tr>
         </thead>
@@ -416,7 +466,7 @@ const NEWS = [
 ];
 
 const NewsFeedWidget = ({ onClose, locked }) => (
-  <div className="flex h-full flex-col">
+  <div className={WIDGET_SHELL_CLASS}>
     <WH icon={Newspaper} title="News Feed" badge="Live" onClose={onClose} locked={locked} />
     <div className={`flex-1 overflow-auto divide-y ${C.bRow}`} onMouseDown={nodrag}>
       {NEWS.map((n, i) => (
@@ -443,7 +493,7 @@ const STATS = [
 ];
 
 const MarketStatsWidget = ({ onClose, locked }) => (
-  <div className="flex h-full flex-col">
+  <div className={WIDGET_SHELL_CLASS}>
     <WH icon={Flame} title="Market Stats" onClose={onClose} locked={locked} />
     <div className="grid flex-1 grid-cols-2 gap-px overflow-auto bg-slate-800/15 p-px" onMouseDown={nodrag}>
       {STATS.map(s => (
@@ -488,8 +538,14 @@ const toLayoutSnapshot = (items) =>
 
 const normalizeLayout = (items) => {
   if (!Array.isArray(items)) return [];
+  const seen = new Set();
   return items
     .filter((item) => item && typeof item.i === 'string' && DEFS[item.i])
+    .filter((item) => {
+      if (seen.has(item.i)) return false;
+      seen.add(item.i);
+      return true;
+    })
     .map((item) => ({
       i: item.i,
       x: Number.isFinite(item.x) ? item.x : 0,
@@ -708,8 +764,12 @@ const TerminalGrid = () => {
   }));
 
   const addWidget = id => {
-    const maxY = layout.reduce((m, l) => Math.max(m, l.y + l.h), 0);
-    setLayout(prev => [...prev, { i: id, x: 0, y: maxY, ...DEFS[id].dfl }]);
+    if (!DEFS[id]) return;
+    setLayout((prev) => {
+      if (prev.some((item) => item.i === id)) return prev;
+      const maxY = prev.reduce((m, l) => Math.max(m, l.y + l.h), 0);
+      return [...prev, { i: id, x: 0, y: maxY, ...DEFS[id].dfl }];
+    });
   };
 
   const savePreset = (name) => {
@@ -765,8 +825,8 @@ const TerminalGrid = () => {
         <div className="flex items-center gap-3">
           <LayoutGrid className="h-3.5 w-3.5 text-violet-200/60" />
           <span className="text-[12px] text-slate-400">{activeIds.length} widgets</span>
-          {!locked && <span className="text-[12px] text-slate-600">В· drag header В· resize corners</span>}
-          {locked && <span className="text-[12px] text-amber-500/80">В· layout locked</span>}
+          {!locked && <span className="text-[12px] text-slate-600">- drag header - resize corners</span>}
+          {locked && <span className="text-[12px] text-amber-500/80">- layout locked</span>}
         </div>
         <div className="flex items-center gap-2">
           {/* Lock / Unlock toggle */}

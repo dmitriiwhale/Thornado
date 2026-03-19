@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import gsap from 'gsap'
 import { ScrollTrigger } from 'gsap/ScrollTrigger'
 import { SplitText as GSAPSplitText } from 'gsap/SplitText'
+import getScrollContainer from '../utils/getScrollContainer'
 
 gsap.registerPlugin(ScrollTrigger, GSAPSplitText)
 
@@ -53,17 +54,23 @@ export default function SplitTextScroll({
   useEffect(() => {
     if (!shouldWaitForFonts) {
       setFontsLoaded(true)
-      return
+      return undefined
     }
     if (typeof document === 'undefined' || !document.fonts) {
       setFontsLoaded(true)
-      return
+      return undefined
     }
     if (document.fonts.status === 'loaded') {
       setFontsLoaded(true)
-      return
+      return undefined
     }
-    document.fonts.ready.then(() => setFontsLoaded(true))
+    let cancelled = false
+    document.fonts.ready.then(() => {
+      if (!cancelled) setFontsLoaded(true)
+    })
+    return () => {
+      cancelled = true
+    }
   }, [shouldWaitForFonts])
 
   useLayoutEffect(() => {
@@ -80,10 +87,7 @@ export default function SplitTextScroll({
       el._rbsplitInstance = null
     }
 
-    const scroller =
-      scrollContainerRef?.current && scrollContainerRef.current !== window
-        ? scrollContainerRef.current
-        : undefined
+    const scroller = getScrollContainer(scrollContainerRef)
 
     let targets = null
     const assignTargets = (splitResult) => {

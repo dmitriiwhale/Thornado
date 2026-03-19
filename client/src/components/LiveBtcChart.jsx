@@ -109,7 +109,7 @@ export default function LiveBtcChart({ onBotMessage }) {
         const up = target >= prev
         const msg = {
           target,
-          text: `Target $${targetPrice.toLocaleString()} — ${up ? 'bias up' : 'bias down'}.`,
+          text: `Target $${targetPrice.toLocaleString()} - ${up ? 'bias up' : 'bias down'}.`,
           tag: 'target',
         }
         setPrediction(msg)
@@ -233,7 +233,7 @@ export default function LiveBtcChart({ onBotMessage }) {
         <div className="space-y-1">
           {priceHistory.length === 0 ? (
             <div className="font-mono text-[15px] text-slate-500">
-              — waiting for updates
+              - waiting for updates
             </div>
           ) : (
             priceHistory.map((entry, i) => (
