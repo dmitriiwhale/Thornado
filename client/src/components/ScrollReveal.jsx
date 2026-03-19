@@ -42,19 +42,32 @@ export default function ScrollReveal({
     const scroller = getScrollContainer(scrollContainerRef)
 
     const ctx = gsap.context(() => {
+      const rotationReveal = {
+        duration: 0.9,
+        ease: 'power2.out',
+      }
+      const wordReveal = {
+        duration: 0.85,
+        ease: 'power2.out',
+        stagger: 0.05,
+      }
+
+      const buildTrigger = (start, end) => ({
+        trigger: el,
+        scroller,
+        start,
+        end,
+        once: true,
+        toggleActions: 'play none none none',
+      })
+
       gsap.fromTo(
         el,
         { transformOrigin: '0% 50%', rotate: baseRotation },
         {
-          ease: 'none',
+          ...rotationReveal,
           rotate: 0,
-          scrollTrigger: {
-            trigger: el,
-            scroller,
-            start: rotationStart,
-            end: rotationEnd,
-            scrub: true,
-          },
+          scrollTrigger: buildTrigger(rotationStart, rotationEnd),
         },
       )
 
@@ -64,16 +77,9 @@ export default function ScrollReveal({
         wordElements,
         { opacity: baseOpacity, willChange: 'opacity' },
         {
-          ease: 'none',
+          ...wordReveal,
           opacity: 1,
-          stagger: 0.05,
-          scrollTrigger: {
-            trigger: el,
-            scroller,
-            start: wordAnimationStart,
-            end: wordAnimationEnd,
-            scrub: true,
-          },
+          scrollTrigger: buildTrigger(wordAnimationStart, wordAnimationEnd),
         },
       )
 
@@ -82,16 +88,9 @@ export default function ScrollReveal({
           wordElements,
           { filter: `blur(${blurStrength}px)` },
           {
-            ease: 'none',
+            ...wordReveal,
             filter: 'blur(0px)',
-            stagger: 0.05,
-            scrollTrigger: {
-              trigger: el,
-              scroller,
-              start: wordAnimationStart,
-              end: wordAnimationEnd,
-              scrub: true,
-            },
+            scrollTrigger: buildTrigger(wordAnimationStart, wordAnimationEnd),
           },
         )
       }

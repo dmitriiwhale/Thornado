@@ -131,15 +131,16 @@ export default function SplitTextScroll({
       trigger: el,
       scroller,
       start,
-      end: 'bottom top',
+      once: true,
       onEnter: () => tween.play(0),
-      onEnterBack: () => tween.play(0),
-      onLeave: () => tween.reverse(),
-      onLeaveBack: () => tween.reverse(),
       invalidateOnRefresh: true,
       fastScrollEnd: true,
       anticipatePin: 0.4,
     })
+
+    if (trigger.progress > 0 || trigger.isActive) {
+      tween.play(0)
+    }
 
     el._rbsplitInstance = splitInstance
 

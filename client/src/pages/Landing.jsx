@@ -7,7 +7,6 @@ import {
   BarChart3,
   Brain,
   Clock3,
-  ExternalLink,
   MessageCircle,
   Target,
   TrendingUp,
@@ -28,12 +27,6 @@ const stats = [
   { label: 'AI Confidence', value: '91%' },
   { label: 'Active Markets', value: '128' },
   { label: 'Risk Envelope', value: 'Stable' },
-]
-
-const watchlist = [
-  { pair: 'BTC-USDT', price: '$108,442', change: '+2.81%', up: true },
-  { pair: 'ETH-USDT', price: '$4,182', change: '+1.42%', up: true },
-  { pair: 'SOL-USDT', price: '$242', change: '-0.38%', up: false },
 ]
 
 const aiTrendMessagesFallback = [
@@ -109,14 +102,16 @@ const footerTickerItems = Array.from({ length: 4 }, () => footerTickerText)
 
 function getBotTagColor(tag) {
   switch (tag) {
+    case 'target':
+      return 'text-[#58ffc0] drop-shadow-[0_0_12px_rgba(88,255,192,0.7)]'
     case 'risk':
-      return 'text-rose-300'
+      return 'text-[#ff5c7a] drop-shadow-[0_0_12px_rgba(255,92,122,0.68)]'
     case 'bias':
-      return 'text-violet-200'
+      return 'text-sky-300 drop-shadow-[0_0_12px_rgba(125,211,252,0.72)]'
     case 'plan':
-      return 'text-amber-300'
+      return 'text-yellow-300 drop-shadow-[0_0_12px_rgba(253,224,71,0.72)]'
     default:
-      return 'text-violet-200/70'
+      return 'text-violet-200/70 drop-shadow-[0_0_8px_rgba(196,181,253,0.28)]'
   }
 }
 
@@ -138,9 +133,6 @@ export default function Landing({ onLaunch, scrollContainerRef }) {
 
   const handleBotMessage = useCallback((msg) => {
     setBotMessages((prev) => [{ ...msg, id: Date.now() }, ...prev].slice(0, 3))
-  }, [])
-  const handleFakeContactNav = useCallback((event) => {
-    event.preventDefault()
   }, [])
 
   const messagesToShow =
@@ -166,6 +158,18 @@ export default function Landing({ onLaunch, scrollContainerRef }) {
     from: { opacity: 0, y: 18, filter: 'blur(5px)' },
     to: { opacity: 1, y: 0, filter: 'blur(0px)' },
   }
+  const sectionRevealPrimary = {
+    initial: { opacity: 0, y: 16 },
+    whileInView: { opacity: 1, y: 0 },
+    transition: { duration: 0.4 },
+  }
+  const sectionRevealCompact = {
+    initial: { opacity: 0, y: 12 },
+    whileInView: { opacity: 1, y: 0 },
+    transition: { duration: 0.4 },
+  }
+  const viewportNear = { once: true, margin: '-40px' }
+  const viewportDeep = { once: true, margin: '-60px' }
 
   useEffect(() => {
     const sectionEl = whySectionRef.current
@@ -242,14 +246,14 @@ export default function Landing({ onLaunch, scrollContainerRef }) {
 
   return (
     <div className="landing-soft-copy w-full text-white">
-      <div className="relative z-10 w-full px-6 pb-20 pt-6 md:px-10 lg:px-12">
+      <div className="relative z-10 w-full px-6 pb-20 pt-3 md:px-10 lg:px-12">
         <motion.section
-          className="grid min-h-[74vh] grid-cols-1 items-start gap-8 pt-10 lg:min-h-[78vh] lg:grid-cols-2 lg:pt-14"
+          className="grid min-h-[74vh] grid-cols-1 items-start gap-8 pt-4 lg:min-h-[78vh] lg:grid-cols-2 lg:pt-6"
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5 }}
         >
-          <div className="flex h-full flex-col justify-start lg:pr-8 lg:pt-3">
+          <div className="flex h-full flex-col justify-start lg:pr-8 lg:pt-1">
             <div className="flex flex-wrap items-center gap-3">
               <SectionLabel icon={Zap}>Trading terminal for Nado DEX</SectionLabel>
             </div>
@@ -311,28 +315,6 @@ export default function Landing({ onLaunch, scrollContainerRef }) {
                 <LiveBtcChart onBotMessage={handleBotMessage} />
               </div>
 
-              <div className="mt-4 grid grid-cols-3 gap-x-5">
-                {watchlist.map((item) => (
-                  <div key={item.pair} className="terminal-market-row">
-                    <div className="text-[14px] font-medium uppercase tracking-[0.14em] text-violet-200/55">
-                      {item.pair}
-                    </div>
-                    <div className="mt-1 text-[18px] font-semibold text-white">
-                      {item.price}
-                    </div>
-                    <div
-                      className={`text-[14px] font-semibold ${
-                        item.up
-                          ? 'text-[#38ffb3] drop-shadow-[0_0_10px_rgba(56,255,179,0.48)]'
-                          : 'text-[#ff5c7a] drop-shadow-[0_0_10px_rgba(255,92,122,0.42)]'
-                      }`}
-                    >
-                      {item.change}
-                    </div>
-                  </div>
-                ))}
-              </div>
-
               <div className="mt-5">
                 <div className="mb-2 text-[14px] font-medium uppercase tracking-[0.16em] text-violet-200/60">
                   AI trend snapshot
@@ -340,7 +322,7 @@ export default function Landing({ onLaunch, scrollContainerRef }) {
                 <div className="space-y-2">
                   {messagesToShow.map((msg, i) => (
                     <div key={msg.id ?? i} className="flex gap-2 text-[15px] leading-snug">
-                      <span className="shrink-0 font-mono text-violet-100">
+                      <span className={`shrink-0 font-mono ${getBotTagColor(msg.tag)}`}>
                         [{msg.tag}]
                       </span>
                       <span className="text-slate-300">{msg.text}</span>
@@ -355,10 +337,8 @@ export default function Landing({ onLaunch, scrollContainerRef }) {
         <motion.section
           ref={whySectionRef}
           className="mt-20"
-          initial={{ opacity: 0, y: 16 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true, margin: '-60px' }}
-          transition={{ duration: 0.4 }}
+          {...sectionRevealPrimary}
+          viewport={viewportDeep}
         >
           <SectionLabel icon={Target}>Why traders switch</SectionLabel>
           <div className="mt-6 grid grid-cols-1 gap-8 lg:grid-cols-12">
@@ -415,10 +395,8 @@ export default function Landing({ onLaunch, scrollContainerRef }) {
 
         <motion.section
           className="mt-16"
-          initial={{ opacity: 0, y: 16 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true, margin: '-40px' }}
-          transition={{ duration: 0.4 }}
+          {...sectionRevealPrimary}
+          viewport={viewportNear}
         >
           <SectionLabel icon={TrendingUp}>Execution flow</SectionLabel>
           <div className="mt-6 grid grid-cols-1 gap-10 lg:grid-cols-12 lg:gap-14">
@@ -483,10 +461,8 @@ export default function Landing({ onLaunch, scrollContainerRef }) {
 
         <motion.section
           className="mt-16 grid grid-cols-1 gap-10 lg:grid-cols-12"
-          initial={{ opacity: 0, y: 16 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true, margin: '-40px' }}
-          transition={{ duration: 0.4 }}
+          {...sectionRevealPrimary}
+          viewport={viewportNear}
         >
           <div className="lg:col-span-7">
             <SectionLabel icon={Zap}>Built for Nado</SectionLabel>
@@ -514,16 +490,19 @@ export default function Landing({ onLaunch, scrollContainerRef }) {
                     {point}
                   </li>
                 ))}
+                <li className="marketing-note">
+                  Visit{' '}
+                  <a
+                    href="https://nado.xyz"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="nado-inline-link"
+                  >
+                    nado.xyz
+                  </a>{' '}
+                  for more information and ecosystem updates.
+                </li>
               </ul>
-              <a
-                href="https://nado.xyz"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="nado-link-stick mt-5 inline-flex items-center gap-2 text-sm font-medium text-violet-200 hover:text-violet-100"
-              >
-                nado.xyz
-                <ExternalLink className="h-4 w-4" />
-              </a>
             </div>
           </div>
 
@@ -555,10 +534,8 @@ export default function Landing({ onLaunch, scrollContainerRef }) {
 
         <motion.section
           className="mt-16"
-          initial={{ opacity: 0, y: 12 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true, margin: '-40px' }}
-          transition={{ duration: 0.4 }}
+          {...sectionRevealCompact}
+          viewport={viewportNear}
         >
           <div className="cta-shell px-0 py-8 text-left">
             <h2 className="text-2xl font-bold tracking-tight text-white md:text-3xl">
@@ -572,7 +549,6 @@ export default function Landing({ onLaunch, scrollContainerRef }) {
               <ElectricButton primary onClick={onLaunch} className="h-12 px-8 text-sm font-semibold">
                 Launch Terminal
               </ElectricButton>
-              <span className="mvp-pill text-xs font-medium">Free during MVP</span>
             </div>
           </div>
         </motion.section>
@@ -588,7 +564,12 @@ export default function Landing({ onLaunch, scrollContainerRef }) {
             >
               Twitter
             </a>
-            <a href="#telegram" onClick={handleFakeContactNav} className="contact-link-chip">
+            <a
+              href="https://t.me/thornadoxyz"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="contact-link-chip"
+            >
               Telegram
             </a>
           </div>
