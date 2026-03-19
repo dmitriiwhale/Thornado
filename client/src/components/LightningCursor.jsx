@@ -1,96 +1,109 @@
-import { useEffect, useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { useEffect, useState } from 'react'
+import { motion } from 'framer-motion'
 
-// Selector — everything a user can meaningfully click
-const CLICKABLE = 'button, a, [role="button"], input, select, textarea, label, [tabindex], [onClick]';
+const CLICKABLE = 'button, a, [role="button"], input, select, textarea, label, [tabindex], [onClick]'
 
 export default function LightningCursor() {
-  const [pos, setPos]               = useState({ x: -200, y: -200 });
-  const [isHovering, setIsHovering] = useState(false);
-  const [isClicking, setIsClicking] = useState(false);
-  const [isDesktop, setIsDesktop]   = useState(true);
+  const [pos, setPos] = useState({ x: -200, y: -200 })
+  const [isHovering, setIsHovering] = useState(false)
+  const [isClicking, setIsClicking] = useState(false)
+  const [isDesktop, setIsDesktop] = useState(true)
+  const [isVisible, setIsVisible] = useState(false)
 
   useEffect(() => {
     if (window.matchMedia('(pointer: coarse)').matches) {
-      setIsDesktop(false);
-      return;
+      setIsDesktop(false)
+      return
     }
-    const move = (e) => setPos({ x: e.clientX, y: e.clientY });
-    const over = (e) => setIsHovering(!!e.target.closest(CLICKABLE));
-    const down = () => setIsClicking(true);
-    const up   = () => setIsClicking(false);
 
-    window.addEventListener('mousemove', move);
-    window.addEventListener('mouseover', over);
-    window.addEventListener('mousedown', down);
-    window.addEventListener('mouseup',   up);
+    const move = (e) => {
+      setPos({ x: e.clientX, y: e.clientY })
+      setIsVisible(true)
+    }
+    const over = (e) => setIsHovering(!!e.target.closest(CLICKABLE))
+    const down = () => setIsClicking(true)
+    const up = () => setIsClicking(false)
+    const leaveWindow = () => {
+      setIsVisible(false)
+      setIsHovering(false)
+      setIsClicking(false)
+    }
+    const enterWindow = () => setIsVisible(true)
+    const handleMouseOut = (e) => {
+      if (!e.relatedTarget) leaveWindow()
+    }
+    const handleVisibility = () => {
+      if (document.hidden) leaveWindow()
+    }
+
+    window.addEventListener('mousemove', move)
+    window.addEventListener('mouseover', over)
+    window.addEventListener('mousedown', down)
+    window.addEventListener('mouseup', up)
+    window.addEventListener('mouseout', handleMouseOut)
+    window.addEventListener('mouseenter', enterWindow)
+    window.addEventListener('blur', leaveWindow)
+    document.addEventListener('visibilitychange', handleVisibility)
+
     return () => {
-      window.removeEventListener('mousemove', move);
-      window.removeEventListener('mouseover', over);
-      window.removeEventListener('mousedown', down);
-      window.removeEventListener('mouseup',   up);
-    };
-  }, []);
+      window.removeEventListener('mousemove', move)
+      window.removeEventListener('mouseover', over)
+      window.removeEventListener('mousedown', down)
+      window.removeEventListener('mouseup', up)
+      window.removeEventListener('mouseout', handleMouseOut)
+      window.removeEventListener('mouseenter', enterWindow)
+      window.removeEventListener('blur', leaveWindow)
+      document.removeEventListener('visibilitychange', handleVisibility)
+    }
+  }, [])
 
-  if (!isDesktop) return null;
-
-  const dotSize   = isClicking ? 4 : isHovering ? 9 : 5;
-  const dotOffset = dotSize / 2;
+  if (!isDesktop) return null
 
   return (
     <motion.div
       className="pointer-events-none fixed left-0 top-0 z-[9999]"
       animate={{ x: pos.x, y: pos.y }}
-      transition={{ type: 'spring', stiffness: 2500, damping: 55, mass: 0.04 }}
+      transition={{ type: 'spring', stiffness: 1800, damping: 42, mass: 0.05 }}
     >
-      {/* Dot */}
-      <motion.div
-        className="absolute rounded-full"
+      <motion.svg
+        width="9"
+        height="15"
+        viewBox="0 0 16 26"
+        className="absolute"
+        style={{ left: 10, top: -14, overflow: 'visible' }}
         animate={{
-          width:  dotSize,
-          height: dotSize,
-          x: -dotOffset,
-          y: -dotOffset,
-          backgroundColor: '#38bdf8',
-          boxShadow: isHovering
-            ? '0 0 14px 4px rgba(56,189,248,0.85)'
-            : '0 0 6px 1px rgba(56,189,248,0.55)',
-          opacity: isClicking ? 0.55 : 1,
+          opacity: isVisible ? (isClicking ? 0.75 : 0.9) : 0,
+          scale: isHovering ? 1.08 : 0.9,
+          y: isHovering ? -2 : 0,
+          rotate: isHovering ? -2 : 0,
         }}
-        transition={{ duration: 0.12, ease: 'easeOut' }}
-      />
-
-      {/* Lightning bolt — appears on hover of any clickable */}
-      <AnimatePresence>
-        {isHovering && (
-          <motion.svg
-            key="bolt"
-            initial={{ opacity: 0, scale: 0.4, x: 7, y: -22 }}
-            animate={{ opacity: 1, scale: 1,   x: 7, y: -22 }}
-            exit={{    opacity: 0, scale: 0.4 }}
-            transition={{ duration: 0.13, ease: 'easeOut' }}
-            width="11"
-            height="19"
-            viewBox="0 0 11 19"
-            className="absolute"
-            style={{ left: 0, top: 0, overflow: 'visible' }}
-          >
-            <defs>
-              <filter id="zap-glow" x="-100%" y="-100%" width="300%" height="300%">
-                <feGaussianBlur in="SourceGraphic" stdDeviation="2" result="blur" />
-                <feMerge>
-                  <feMergeNode in="blur" />
-                  <feMergeNode in="SourceGraphic" />
-                </feMerge>
-              </filter>
-            </defs>
-            {/* glow copy */}
-            <polygon points="8,0 2,10 6,10 2,19 10,8 5,8" fill="rgba(125,211,252,0.5)" filter="url(#zap-glow)" />
-            {/* crisp bolt */}
-            <polygon points="8,0 2,10 6,10 2,19 10,8 5,8" fill="#7dd3fc" />
-          </motion.svg>
-        )}
-      </AnimatePresence>
+        transition={{ duration: 0.14, ease: 'easeOut' }}
+      >
+        <defs>
+          <filter id="cursor-zap-glow" x="-180%" y="-180%" width="460%" height="460%">
+            <feGaussianBlur in="SourceGraphic" stdDeviation="2.2" result="blur" />
+            <feColorMatrix
+              in="blur"
+              type="matrix"
+              values="1 0 0 0 0.72  0 1 0 0 0.58  0 0 1 0 1  0 0 0 1 0"
+              result="tint"
+            />
+            <feMerge>
+              <feMergeNode in="tint" />
+              <feMergeNode in="SourceGraphic" />
+            </feMerge>
+          </filter>
+        </defs>
+        <polygon
+          points="11,0 4,11 8,11 3,26 14,10 9,10"
+          fill="rgba(196,181,253,0.58)"
+          filter="url(#cursor-zap-glow)"
+        />
+        <polygon
+          points="11,0 4,11 8,11 3,26 14,10 9,10"
+          fill={isHovering ? '#f5f3ff' : '#ddd6fe'}
+        />
+      </motion.svg>
     </motion.div>
-  );
+  )
 }

@@ -7,6 +7,7 @@ import {
   BarChart3,
   Brain,
   Clock3,
+  ExternalLink,
   MessageCircle,
   Target,
   TrendingUp,
@@ -18,7 +19,6 @@ import LiveBtcChart from '../components/LiveBtcChart'
 import ScrollReveal from '../components/ScrollReveal'
 import SplitTextScroll from '../components/SplitTextScroll'
 import nadoLogo from '../assets/nado.png'
-import getScrollContainer from '../utils/getScrollContainer'
 
 gsap.registerPlugin(ScrollTrigger)
 
@@ -27,6 +27,12 @@ const stats = [
   { label: 'AI Confidence', value: '91%' },
   { label: 'Active Markets', value: '128' },
   { label: 'Risk Envelope', value: 'Stable' },
+]
+
+const watchlist = [
+  { pair: 'BTC-USDT', price: '$108,442', change: '+2.81%', up: true },
+  { pair: 'ETH-USDT', price: '$4,182', change: '+1.42%', up: true },
+  { pair: 'SOL-USDT', price: '$242', change: '-0.38%', up: false },
 ]
 
 const aiTrendMessagesFallback = [
@@ -71,13 +77,6 @@ const executionSteps = [
   },
 ]
 
-const outcomeNotes = [
-  'Faster decisions with less interface noise.',
-  'Clear invalidation before every entry.',
-  'Consistent routine across every session.',
-  'More focus on execution, less on switching tabs.',
-]
-
 const nadoPoints = [
   'Native integration with Nado order flow and market data.',
   'Low-latency updates built for active intraday execution.',
@@ -102,16 +101,14 @@ const footerTickerItems = Array.from({ length: 4 }, () => footerTickerText)
 
 function getBotTagColor(tag) {
   switch (tag) {
-    case 'target':
-      return 'text-[#58ffc0] drop-shadow-[0_0_12px_rgba(88,255,192,0.7)]'
     case 'risk':
-      return 'text-[#ff5c7a] drop-shadow-[0_0_12px_rgba(255,92,122,0.68)]'
+      return 'text-rose-300'
     case 'bias':
-      return 'text-sky-300 drop-shadow-[0_0_12px_rgba(125,211,252,0.72)]'
+      return 'text-violet-200'
     case 'plan':
-      return 'text-yellow-300 drop-shadow-[0_0_12px_rgba(253,224,71,0.72)]'
+      return 'text-amber-300'
     default:
-      return 'text-violet-200/70 drop-shadow-[0_0_8px_rgba(196,181,253,0.28)]'
+      return 'text-violet-200/70'
   }
 }
 
@@ -134,6 +131,9 @@ export default function Landing({ onLaunch, scrollContainerRef }) {
   const handleBotMessage = useCallback((msg) => {
     setBotMessages((prev) => [{ ...msg, id: Date.now() }, ...prev].slice(0, 3))
   }, [])
+  const handleFakeContactNav = useCallback((event) => {
+    event.preventDefault()
+  }, [])
 
   const messagesToShow =
     botMessages.length > 0 ? botMessages : aiTrendMessagesFallback
@@ -143,8 +143,11 @@ export default function Landing({ onLaunch, scrollContainerRef }) {
     splitType: 'chars',
     delay: 16,
     duration: 1.05,
-    threshold: 0,
-    rootMargin: '0px',
+    start: 'top 96%',
+    end: 'bottom top',
+    toggleActions: 'play reverse play reverse',
+    once: false,
+    scrub: false,
     from: { opacity: 0, y: 24, filter: 'blur(6px)' },
     to: { opacity: 1, y: 0, filter: 'blur(0px)' },
   }
@@ -153,29 +156,23 @@ export default function Landing({ onLaunch, scrollContainerRef }) {
     splitType: 'words,chars',
     delay: 10,
     duration: 0.95,
-    threshold: 0,
-    rootMargin: '0px',
+    start: 'top 95%',
+    end: 'bottom top',
+    toggleActions: 'play reverse play reverse',
+    once: false,
+    scrub: false,
     from: { opacity: 0, y: 18, filter: 'blur(5px)' },
     to: { opacity: 1, y: 0, filter: 'blur(0px)' },
   }
-  const sectionRevealPrimary = {
-    initial: { opacity: 0, y: 16 },
-    whileInView: { opacity: 1, y: 0 },
-    transition: { duration: 0.4 },
-  }
-  const sectionRevealCompact = {
-    initial: { opacity: 0, y: 12 },
-    whileInView: { opacity: 1, y: 0 },
-    transition: { duration: 0.4 },
-  }
-  const viewportNear = { once: true, margin: '-40px' }
-  const viewportDeep = { once: true, margin: '-60px' }
 
   useEffect(() => {
     const sectionEl = whySectionRef.current
     if (!sectionEl) return undefined
 
-    const scroller = getScrollContainer(scrollContainerRef)
+    const scroller =
+      scrollContainerRef?.current && scrollContainerRef.current !== window
+        ? scrollContainerRef.current
+        : window
 
     const rows = sectionEl.querySelectorAll('.value-row-card')
     if (!rows.length) return undefined
@@ -246,14 +243,14 @@ export default function Landing({ onLaunch, scrollContainerRef }) {
 
   return (
     <div className="landing-soft-copy w-full text-white">
-      <div className="relative z-10 w-full px-6 pb-20 pt-3 md:px-10 lg:px-12">
+      <div className="relative z-10 w-full px-6 pb-20 pt-6 md:px-10 lg:px-12">
         <motion.section
-          className="grid min-h-[74vh] grid-cols-1 items-start gap-8 pt-4 lg:min-h-[78vh] lg:grid-cols-2 lg:pt-6"
+          className="grid min-h-[74vh] grid-cols-1 items-start gap-8 pt-10 lg:min-h-[78vh] lg:grid-cols-2 lg:pt-14"
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5 }}
         >
-          <div className="flex h-full flex-col justify-start lg:pr-8 lg:pt-1">
+          <div className="flex h-full flex-col justify-start lg:pr-8 lg:pt-3">
             <div className="flex flex-wrap items-center gap-3">
               <SectionLabel icon={Zap}>Trading terminal for Nado DEX</SectionLabel>
             </div>
@@ -301,12 +298,12 @@ export default function Landing({ onLaunch, scrollContainerRef }) {
             <div className="terminal-preview-shell">
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <div className="text-[14px] font-medium uppercase tracking-[0.16em] text-violet-200/60">
+                  <div className="text-[11px] font-medium uppercase tracking-[0.16em] text-violet-200/60">
                     Live terminal preview
                   </div>
                 </div>
-                <div className="pillless inline-flex items-center gap-2 text-[14px] font-medium uppercase tracking-[0.15em] text-[#58ffc0]">
-                  <span className="h-1.5 w-1.5 rounded-full bg-[#58ffc0]" />
+                <div className="pillless inline-flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.15em] text-emerald-300">
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-300" />
                   Live
                 </div>
               </div>
@@ -315,14 +312,36 @@ export default function Landing({ onLaunch, scrollContainerRef }) {
                 <LiveBtcChart onBotMessage={handleBotMessage} />
               </div>
 
+              <div className="mt-4 grid grid-cols-3 gap-x-5">
+                {watchlist.map((item) => (
+                  <div key={item.pair} className="terminal-market-row">
+                    <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-violet-200/55">
+                      {item.pair}
+                    </div>
+                    <div className="mt-1 text-sm font-semibold text-white">
+                      {item.price}
+                    </div>
+                    <div
+                      className={`text-[11px] font-semibold ${
+                        item.up
+                          ? 'text-emerald-300 drop-shadow-[0_0_8px_rgba(16,185,129,0.45)]'
+                          : 'text-rose-300 drop-shadow-[0_0_8px_rgba(244,63,94,0.4)]'
+                      }`}
+                    >
+                      {item.change}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
               <div className="mt-5">
-                <div className="mb-2 text-[14px] font-medium uppercase tracking-[0.16em] text-violet-200/60">
+                <div className="mb-2 text-[11px] font-medium uppercase tracking-[0.16em] text-violet-200/60">
                   AI trend snapshot
                 </div>
                 <div className="space-y-2">
                   {messagesToShow.map((msg, i) => (
-                    <div key={msg.id ?? i} className="flex gap-2 text-[15px] leading-snug">
-                      <span className={`shrink-0 font-mono ${getBotTagColor(msg.tag)}`}>
+                    <div key={msg.id ?? i} className="flex gap-2 text-xs leading-snug">
+                      <span className="shrink-0 font-mono text-violet-100">
                         [{msg.tag}]
                       </span>
                       <span className="text-slate-300">{msg.text}</span>
@@ -337,8 +356,10 @@ export default function Landing({ onLaunch, scrollContainerRef }) {
         <motion.section
           ref={whySectionRef}
           className="mt-20"
-          {...sectionRevealPrimary}
-          viewport={viewportDeep}
+          initial={{ opacity: 0, y: 16 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true, margin: '-60px' }}
+          transition={{ duration: 0.4 }}
         >
           <SectionLabel icon={Target}>Why traders switch</SectionLabel>
           <div className="mt-6 grid grid-cols-1 gap-8 lg:grid-cols-12">
@@ -395,8 +416,10 @@ export default function Landing({ onLaunch, scrollContainerRef }) {
 
         <motion.section
           className="mt-16"
-          {...sectionRevealPrimary}
-          viewport={viewportNear}
+          initial={{ opacity: 0, y: 16 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true, margin: '-40px' }}
+          transition={{ duration: 0.4 }}
         >
           <SectionLabel icon={TrendingUp}>Execution flow</SectionLabel>
           <div className="mt-6 grid grid-cols-1 gap-10 lg:grid-cols-12 lg:gap-14">
@@ -444,16 +467,38 @@ export default function Landing({ onLaunch, scrollContainerRef }) {
                 {...executionTitleAnimation}
               />
               <ul className="outcome-list mt-6 text-base text-slate-200">
-                {outcomeNotes.map((note) => (
-                  <li key={note} className="marketing-note">
-                    <SplitTextScroll
-                      text={note}
-                      tag="span"
-                      className=""
-                      {...executionLineAnimation}
-                    />
-                  </li>
-                ))}
+                <li className="marketing-note">
+                  <SplitTextScroll
+                    text="Faster decisions with less interface noise."
+                    tag="span"
+                    className=""
+                    {...executionLineAnimation}
+                  />
+                </li>
+                <li className="marketing-note">
+                  <SplitTextScroll
+                    text="Clear invalidation before every entry."
+                    tag="span"
+                    className=""
+                    {...executionLineAnimation}
+                  />
+                </li>
+                <li className="marketing-note">
+                  <SplitTextScroll
+                    text="Consistent routine across every session."
+                    tag="span"
+                    className=""
+                    {...executionLineAnimation}
+                  />
+                </li>
+                <li className="marketing-note">
+                  <SplitTextScroll
+                    text="More focus on execution, less on switching tabs."
+                    tag="span"
+                    className=""
+                    {...executionLineAnimation}
+                  />
+                </li>
               </ul>
             </div>
           </div>
@@ -461,8 +506,10 @@ export default function Landing({ onLaunch, scrollContainerRef }) {
 
         <motion.section
           className="mt-16 grid grid-cols-1 gap-10 lg:grid-cols-12"
-          {...sectionRevealPrimary}
-          viewport={viewportNear}
+          initial={{ opacity: 0, y: 16 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true, margin: '-40px' }}
+          transition={{ duration: 0.4 }}
         >
           <div className="lg:col-span-7">
             <SectionLabel icon={Zap}>Built for Nado</SectionLabel>
@@ -490,19 +537,16 @@ export default function Landing({ onLaunch, scrollContainerRef }) {
                     {point}
                   </li>
                 ))}
-                <li className="marketing-note">
-                  Visit{' '}
-                  <a
-                    href="https://nado.xyz"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="nado-inline-link"
-                  >
-                    nado.xyz
-                  </a>{' '}
-                  for more information and ecosystem updates.
-                </li>
               </ul>
+              <a
+                href="https://nado.xyz"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="nado-link-stick mt-5 inline-flex items-center gap-2 text-sm font-medium text-violet-200 hover:text-violet-100"
+              >
+                nado.xyz
+                <ExternalLink className="h-4 w-4" />
+              </a>
             </div>
           </div>
 
@@ -534,8 +578,10 @@ export default function Landing({ onLaunch, scrollContainerRef }) {
 
         <motion.section
           className="mt-16"
-          {...sectionRevealCompact}
-          viewport={viewportNear}
+          initial={{ opacity: 0, y: 12 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true, margin: '-40px' }}
+          transition={{ duration: 0.4 }}
         >
           <div className="cta-shell px-0 py-8 text-left">
             <h2 className="text-2xl font-bold tracking-tight text-white md:text-3xl">
@@ -549,6 +595,7 @@ export default function Landing({ onLaunch, scrollContainerRef }) {
               <ElectricButton primary onClick={onLaunch} className="h-12 px-8 text-sm font-semibold">
                 Launch Terminal
               </ElectricButton>
+              <span className="mvp-pill text-xs font-medium">Free during MVP</span>
             </div>
           </div>
         </motion.section>
@@ -556,20 +603,10 @@ export default function Landing({ onLaunch, scrollContainerRef }) {
         <section className="contact-links-shell mt-14">
           <div className="contact-links-title">Connect with us</div>
           <div className="contact-links-row">
-            <a
-              href="https://x.com/Thornadoxyz"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="contact-link-chip"
-            >
+            <a href="#twitter" onClick={handleFakeContactNav} className="contact-link-chip">
               Twitter
             </a>
-            <a
-              href="https://t.me/thornadoxyz"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="contact-link-chip"
-            >
+            <a href="#telegram" onClick={handleFakeContactNav} className="contact-link-chip">
               Telegram
             </a>
           </div>

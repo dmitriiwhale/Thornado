@@ -8,13 +8,13 @@ export default function TinyChart() {
     <svg viewBox="0 0 430 130" className="h-full w-full">
       <defs>
         <linearGradient id="lineGlow" x1="0" y1="0" x2="1" y2="0">
-          <stop offset="0%" stopColor="rgba(59,130,246,0.5)" />
-          <stop offset="50%" stopColor="rgba(96,165,250,1)" />
-          <stop offset="100%" stopColor="rgba(37,99,235,0.9)" />
+          <stop offset="0%" stopColor="rgba(139,92,246,0.38)" />
+          <stop offset="50%" stopColor="rgba(221,214,254,1)" />
+          <stop offset="100%" stopColor="rgba(129,140,248,0.82)" />
         </linearGradient>
         <linearGradient id="fillGlow" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="rgba(59, 130, 246, 0.4)" />
-          <stop offset="100%" stopColor="rgba(59, 130, 246, 0)" />
+          <stop offset="0%" stopColor="rgba(139, 92, 246, 0.34)" />
+          <stop offset="100%" stopColor="rgba(139, 92, 246, 0)" />
         </linearGradient>
       </defs>
       {[...Array(6)].map((_, i) => (
@@ -26,7 +26,7 @@ export default function TinyChart() {
       <path d={`${path} L 430 130 L 16 130 Z`} fill="url(#fillGlow)" />
       <path d={path} fill="none" stroke="url(#lineGlow)" strokeWidth="4" strokeLinecap="round" />
       <circle cx="406" cy="34" r="5" fill="white" />
-      <circle cx="406" cy="34" r="10" fill="rgba(135,230,255,0.25)" />
+      <circle cx="406" cy="34" r="10" fill="rgba(196,181,253,0.28)" />
     </svg>
   )
 }

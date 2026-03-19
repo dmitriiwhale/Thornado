@@ -109,7 +109,7 @@ export default function LiveBtcChart({ onBotMessage }) {
         const up = target >= prev
         const msg = {
           target,
-          text: `Target $${targetPrice.toLocaleString()} - ${up ? 'bias up' : 'bias down'}.`,
+          text: `Target $${targetPrice.toLocaleString()} — ${up ? 'bias up' : 'bias down'}.`,
           tag: 'target',
         }
         setPrediction(msg)
@@ -191,8 +191,8 @@ export default function LiveBtcChart({ onBotMessage }) {
   return (
     <div ref={containerRef} className="relative w-full rounded-xl">
       <div className="flex items-baseline justify-between">
-        <span className="text-[18px] font-medium text-white">SOMETOKEN-USDT</span>
-        <span className="font-mono text-[20px] tabular-nums text-violet-100">
+        <span className="font-medium text-white">SOMETOKEN-USDT</span>
+        <span className="font-mono text-lg tabular-nums text-violet-100">
           {displayPrice}
         </span>
       </div>
@@ -227,19 +227,19 @@ export default function LiveBtcChart({ onBotMessage }) {
       </div>
 
       <div className="mt-3 border-t border-white/10 pt-2">
-        <div className="mb-1.5 text-[14px] font-medium uppercase tracking-wider text-violet-200/60">
+        <div className="mb-1.5 text-[11px] font-medium uppercase tracking-wider text-violet-200/60">
           Price history
         </div>
         <div className="space-y-1">
           {priceHistory.length === 0 ? (
-            <div className="font-mono text-[15px] text-slate-500">
-              - waiting for updates
+            <div className="font-mono text-[12px] text-slate-500">
+              — waiting for updates
             </div>
           ) : (
             priceHistory.map((entry, i) => (
               <div
                 key={`${entry.time}-${i}`}
-                className="flex items-center justify-between font-mono text-[15px]"
+                className="flex items-center justify-between font-mono text-[12px]"
               >
                 <span className="text-slate-500 tabular-nums">{entry.time}</span>
                 <span className="text-slate-300 tabular-nums">
@@ -248,8 +248,8 @@ export default function LiveBtcChart({ onBotMessage }) {
                 <span
                   className={`tabular-nums ${
                     entry.up
-                      ? 'text-[#38ffb3] drop-shadow-[0_0_10px_rgba(56,255,179,0.48)]'
-                      : 'text-[#ff5c7a] drop-shadow-[0_0_10px_rgba(255,92,122,0.42)]'
+                      ? 'text-emerald-300 drop-shadow-[0_0_8px_rgba(16,185,129,0.45)]'
+                      : 'text-rose-300 drop-shadow-[0_0_8px_rgba(244,63,94,0.4)]'
                   }`}
                 >
                   {entry.up ? '+' : ''}

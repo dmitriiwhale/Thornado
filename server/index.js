@@ -1,3 +1,4 @@
+
 import express from 'express'
 import cors from 'cors'
 
@@ -19,6 +20,16 @@ app.get('/api/watchlist', (_req, res) => {
   ])
 })
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`THORNado server listening on http://localhost:${PORT}`)
+})
+
+server.on('error', (error) => {
+  if (error?.code === 'EADDRINUSE') {
+    console.error(`Port ${PORT} is already in use. Set PORT to a free port and retry.`)
+    process.exit(1)
+  }
+
+  console.error('Server failed to start:', error)
+  process.exit(1)
 })

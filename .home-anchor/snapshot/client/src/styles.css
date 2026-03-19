@@ -764,18 +764,10 @@ button { cursor: pointer; }
   min-height: 84px;
   display: flex;
   align-items: center;
-  border-top: none;
-  padding: 0.42rem 0;
 }
 
 .landing-soft-copy .execution-steps-list .execution-step-index {
-  transition: border-color 180ms ease, box-shadow 180ms ease, color 180ms ease;
-}
-
-.landing-soft-copy .execution-steps-list .marketing-step:hover .execution-step-index {
-  border-color: rgba(236, 228, 255, 0.68);
-  color: rgba(247, 250, 255, 0.99);
-  box-shadow: 0 0 14px rgba(214, 201, 255, 0.28);
+  transition: none;
 }
 
 .landing-soft-copy .outcome-list .marketing-note {
@@ -786,7 +778,7 @@ button { cursor: pointer; }
   align-items: center;
   padding: 0.42rem 0 0.42rem 0.95rem;
   color: rgba(241, 245, 249, 0.92);
-  transition: color 180ms ease, text-shadow 180ms ease;
+  transition: none;
 }
 
 .landing-soft-copy .outcome-list .marketing-note::before {
@@ -798,17 +790,7 @@ button { cursor: pointer; }
   width: 2px;
   border-radius: 999px;
   background: rgba(214, 201, 255, 0.68);
-  transition: background-color 180ms ease, box-shadow 180ms ease;
-}
-
-.landing-soft-copy .outcome-list .marketing-note:hover {
-  color: rgba(247, 250, 255, 0.99);
-  text-shadow: 0 0 14px rgba(214, 201, 255, 0.42);
-}
-
-.landing-soft-copy .outcome-list .marketing-note:hover::before {
-  background: rgba(236, 228, 255, 0.98);
-  box-shadow: 0 0 12px rgba(214, 201, 255, 0.52);
+  transition: none;
 }
 
 .landing-soft-copy .nado-focus {
@@ -869,25 +851,32 @@ button { cursor: pointer; }
   box-shadow: 0 0 12px rgba(214, 201, 255, 0.52);
 }
 
-.landing-soft-copy .nado-inline-link {
+.landing-soft-copy .nado-link-stick {
   position: relative;
-  display: inline-flex;
-  align-items: center;
-  color: rgba(196, 181, 253, 0.96);
-  text-decoration: none;
-  text-shadow: 0 0 9px rgba(167, 139, 250, 0.26);
-  transition: color 180ms ease, text-shadow 180ms ease, text-decoration-color 180ms ease;
+  padding-left: 0.95rem;
+  font-size: 1.06rem;
+  transition: color 180ms ease, text-shadow 180ms ease;
 }
 
-.landing-soft-copy .nado-inline-link:hover {
-  color: rgba(247, 250, 255, 0.99);
+.landing-soft-copy .nado-link-stick::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0.2rem;
+  bottom: 0.2rem;
+  width: 2px;
+  border-radius: 999px;
+  background: rgba(194, 172, 255, 0.56);
+  transition: background-color 180ms ease, box-shadow 180ms ease;
+}
+
+.landing-soft-copy .nado-link-stick:hover {
   text-shadow: 0 0 14px rgba(214, 201, 255, 0.42);
 }
 
-.landing-soft-copy .nado-inline-link:focus-visible {
-  outline: 1px solid rgba(214, 201, 255, 0.55);
-  outline-offset: 2px;
-  border-radius: 2px;
+.landing-soft-copy .nado-link-stick:hover::before {
+  background: rgba(236, 228, 255, 0.98);
+  box-shadow: 0 0 12px rgba(214, 201, 255, 0.52);
 }
 
 .landing-soft-copy .nado-logo-corners {
