@@ -5,6 +5,7 @@ import Navbar from './components/Navbar';
 import StormBackdrop from './components/StormBackdrop';
 import Landing from './pages/Landing';
 import Terminal from './pages/Terminal';
+import Account from './pages/Account';
 
 export default function App() {
   const pageContentRef = useRef(null)
@@ -45,6 +46,7 @@ export default function App() {
           <Routes>
             <Route path="/" element={<Landing scrollContainerRef={pageContentRef} />} />
             <Route path="/terminal" element={<Terminal />} />
+            <Route path="/account" element={<Account />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </div>

@@ -1,0 +1,21 @@
+diff --git a/node_modules/@nadohq/shared/dist/eip712/getNadoEIP712Values.js b/node_modules/@nadohq/shared/dist/eip712/getNadoEIP712Values.js
+index df7bf88..96c5f82 100644
+--- a/node_modules/@nadohq/shared/dist/eip712/getNadoEIP712Values.js
++++ b/node_modules/@nadohq/shared/dist/eip712/getNadoEIP712Values.js
+@@ -1,6 +1,7 @@
+ import "../chunk-5WRI5ZAA.js";
+ 
+ // src/eip712/getNadoEIP712Values.ts
++import { getAddress, pad } from "viem";
+ import { subaccountToHex } from "../utils/bytes32.js";
+ import { addDecimals, toIntegerString } from "../utils/math/index.js";
+ function getNadoEIP712Values(requestType, params) {
+@@ -130,7 +131,7 @@ function getLinkSignerValues(params) {
+       subaccountOwner: params.subaccountOwner,
+       subaccountName: params.subaccountName
+     }),
+-    signer: params.signer,
++    signer: pad(getAddress(params.signer), { size: 32 }),
+     nonce: params.nonce
+   };
+ }

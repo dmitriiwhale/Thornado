@@ -1,6 +1,8 @@
 import React from 'react';
-import { Link, NavLink } from 'react-router-dom';
+import { Link, NavLink, useNavigate } from 'react-router-dom';
 import ElectricButton from './ElectricButton';
+import NetworkToggle from './NetworkToggle.jsx';
+import { useSession } from '../hooks/useSession.js';
 import logo from '../assets/thornado-hammer.png';
 
 const NAV_LINKS = [
@@ -22,6 +24,10 @@ const navLinkStyle = ({ isActive }) =>
   isActive ? { textShadow: '0 0 16px rgba(196,181,253,0.55)' } : { textShadow: '0 0 0 rgba(0,0,0,0)' };
 
 export default function Navbar() {
+  const navigate = useNavigate();
+  const { data: session } = useSession();
+  const ctaLabel = session?.address ? 'My account' : 'Sign in';
+
   return (
     <div
       className="w-full px-5"
@@ -95,8 +101,13 @@ export default function Navbar() {
 
         {/* CTA buttons — equal size */}
         <div className="flex items-center gap-2 shrink-0">
-          <ElectricButton primary className="h-8 px-4 text-sm font-medium">
-            Sign in
+          <NetworkToggle />
+          <ElectricButton
+            primary
+            className="h-8 px-4 text-sm font-medium"
+            onClick={() => navigate('/account')}
+          >
+            {ctaLabel}
           </ElectricButton>
         </div>
 
