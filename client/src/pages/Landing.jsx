@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import gsap from 'gsap'
 import { ScrollTrigger } from 'gsap/ScrollTrigger'
@@ -124,7 +125,8 @@ function SectionLabel({ icon: Icon, children }) {
   )
 }
 
-export default function Landing({ onLaunch, scrollContainerRef }) {
+export default function Landing({ scrollContainerRef }) {
+  const navigate = useNavigate()
   const [botMessages, setBotMessages] = useState([])
   const [thorStarted, setThorStarted] = useState(false)
   const [visibleThorCount, setVisibleThorCount] = useState(0)
@@ -270,7 +272,7 @@ export default function Landing({ onLaunch, scrollContainerRef }) {
             <div className="mt-8 flex flex-wrap items-center gap-3">
               <ElectricButton
                 primary
-                onClick={onLaunch}
+                onClick={() => navigate('/terminal')}
                 className="h-12 px-7 text-sm font-semibold"
               >
                 Launch Terminal
@@ -546,7 +548,7 @@ export default function Landing({ onLaunch, scrollContainerRef }) {
               cleaner decision process from the first session.
             </p>
             <div className="mt-6 flex flex-wrap items-center gap-3">
-              <ElectricButton primary onClick={onLaunch} className="h-12 px-8 text-sm font-semibold">
+              <ElectricButton primary onClick={() => navigate('/terminal')} className="h-12 px-8 text-sm font-semibold">
                 Launch Terminal
               </ElectricButton>
             </div>

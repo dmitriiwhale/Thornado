@@ -1,7 +1,9 @@
 const { spawn } = require('node:child_process')
+const path = require('node:path')
 
 const isWindows = process.platform === 'win32'
 const npmCmd = isWindows ? 'npm.cmd' : 'npm'
+const gatewayDir = path.join(__dirname, 'gateway')
 
 const children = []
 let shuttingDown = false
@@ -24,11 +26,12 @@ function shutdown(exitCode = 0) {
   setTimeout(() => process.exit(exitCode), 150)
 }
 
-function run(name, args) {
-  const child = spawn(npmCmd, args, {
+function run(name, command, args, options = {}) {
+  const child = spawn(command, args, {
     stdio: 'inherit',
     env: process.env,
     shell: isWindows,
+    ...options,
   })
 
   child.on('error', (error) => {
@@ -49,5 +52,5 @@ function run(name, args) {
 process.on('SIGINT', () => shutdown(0))
 process.on('SIGTERM', () => shutdown(0))
 
-run('server', ['run', 'dev', '--prefix', 'server'])
-run('client', ['run', 'dev', '--prefix', 'client'])
+run('gateway', 'go', ['run', '.'], { cwd: gatewayDir })
+run('client', npmCmd, ['run', 'dev', '--prefix', 'client'])

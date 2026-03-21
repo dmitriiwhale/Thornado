@@ -1,4 +1,5 @@
-import React, { useRef, useState } from 'react';
+import React, { useRef } from 'react';
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import LightningCursor from './components/LightningCursor';
 import Navbar from './components/Navbar';
 import StormBackdrop from './components/StormBackdrop';
@@ -6,10 +7,9 @@ import Landing from './pages/Landing';
 import Terminal from './pages/Terminal';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState('landing'); // 'landing' | 'terminal'
   const pageContentRef = useRef(null)
-
-  const isTerminal = activeTab === 'terminal';
+  const location = useLocation()
+  const isTerminal = location.pathname === '/terminal'
 
   return (
     <>
@@ -27,7 +27,7 @@ export default function App() {
 
         {/* Navbar */}
         <div className="relative z-10 shrink-0 px-5 py-3">
-          <Navbar activeTab={activeTab} setActiveTab={setActiveTab} />
+          <Navbar />
         </div>
 
         {/* Page content */}
@@ -42,14 +42,11 @@ export default function App() {
             minHeight: 0,
           }}
         >
-          {isTerminal ? (
-            <Terminal />
-          ) : (
-            <Landing
-              onLaunch={() => setActiveTab('terminal')}
-              scrollContainerRef={pageContentRef}
-            />
-          )}
+          <Routes>
+            <Route path="/" element={<Landing scrollContainerRef={pageContentRef} />} />
+            <Route path="/terminal" element={<Terminal />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
         </div>
       </div>
     </>

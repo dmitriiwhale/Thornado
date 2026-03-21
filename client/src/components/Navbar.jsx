@@ -1,16 +1,27 @@
 import React from 'react';
+import { Link, NavLink } from 'react-router-dom';
 import ElectricButton from './ElectricButton';
 import logo from '../assets/thornado-hammer.png';
 
 const NAV_LINKS = [
-  { label: 'Home',         tab: 'landing'  },
-  { label: 'Terminal',     tab: 'terminal' },
-  { label: 'AI Signals',   tab: null       },
-  { label: 'Strategy Lab', tab: null       },
-  { label: 'Docs',         tab: null       },
+  { label: 'Home', to: '/' },
+  { label: 'Terminal', to: '/terminal' },
+  { label: 'AI Signals', to: null },
+  { label: 'Strategy Lab', to: null },
+  { label: 'Docs', to: null },
 ];
 
-export default function Navbar({ activeTab, setActiveTab }) {
+const navLinkClass = ({ isActive }) =>
+  `relative rounded-md px-3 py-1.5 text-sm font-medium transition-all duration-200 ${
+    isActive
+      ? 'text-indigo-100 shadow-[0_0_20px_rgba(167,139,250,0.16)]'
+      : 'text-slate-400 hover:text-slate-100 hover:shadow-[0_0_18px_rgba(167,139,250,0.18)]'
+  }`;
+
+const navLinkStyle = ({ isActive }) =>
+  isActive ? { textShadow: '0 0 16px rgba(196,181,253,0.55)' } : { textShadow: '0 0 0 rgba(0,0,0,0)' };
+
+export default function Navbar() {
   return (
     <div
       className="w-full px-5"
@@ -27,8 +38,8 @@ export default function Navbar({ activeTab, setActiveTab }) {
       <div className="flex w-full items-center justify-between gap-6">
 
         {/* Logo + wordmark */}
-        <button
-          onClick={() => setActiveTab('landing')}
+        <Link
+          to="/"
           className="flex items-center gap-3 shrink-0 pr-3"
         >
           <img
@@ -43,41 +54,41 @@ export default function Navbar({ activeTab, setActiveTab }) {
               AI trading terminal
             </div>
           </div>
-        </button>
+        </Link>
 
         {/* Nav links — centered */}
         <nav className="relative hidden lg:flex items-center gap-1 pb-2">
           <div className="pointer-events-none absolute bottom-0 left-0 right-0 h-px bg-gradient-to-r from-violet-300/0 via-violet-200/45 to-violet-300/0" />
-          {NAV_LINKS.map(({ label, tab }) => {
-            const isActive = tab && activeTab === tab;
+          {NAV_LINKS.map(({ label, to }) => {
+            if (to) {
+              return (
+                <NavLink
+                  key={label}
+                  to={to}
+                  end={to === '/'}
+                  className={navLinkClass}
+                  style={navLinkStyle}
+                >
+                  {({ isActive }) => (
+                    <>
+                      {label}
+                      <span
+                        className={`pointer-events-none absolute -bottom-2 left-2 right-2 h-[2px] transition-opacity duration-200 ${
+                          isActive ? 'opacity-100 bg-violet-200/90' : 'opacity-0'
+                        }`}
+                      />
+                    </>
+                  )}
+                </NavLink>
+              );
+            }
             return (
-              <button
+              <span
                 key={label}
-                onClick={() => tab && setActiveTab(tab)}
-                className={`relative rounded-md px-3 py-1.5 text-sm font-medium transition-all duration-200 ${
-                  isActive
-                    ? 'text-indigo-100 shadow-[0_0_20px_rgba(167,139,250,0.16)]'
-                    : tab
-                    ? 'text-slate-400 hover:text-slate-100 hover:shadow-[0_0_18px_rgba(167,139,250,0.18)]'
-                    : 'text-slate-600 cursor-default'
-                }`}
-                style={
-                  isActive
-                    ? { textShadow: '0 0 16px rgba(196,181,253,0.55)' }
-                    : tab
-                    ? { textShadow: '0 0 0 rgba(0,0,0,0)' }
-                    : undefined
-                }
+                className="relative rounded-md px-3 py-1.5 text-sm font-medium text-slate-600 cursor-default"
               >
                 {label}
-                {tab ? (
-                  <span
-                    className={`pointer-events-none absolute -bottom-2 left-2 right-2 h-[2px] transition-opacity duration-200 ${
-                      isActive ? 'opacity-100 bg-violet-200/90' : 'opacity-0'
-                    }`}
-                  />
-                ) : null}
-              </button>
+              </span>
             );
           })}
         </nav>
