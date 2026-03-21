@@ -23,6 +23,9 @@ function formatAddress(a) {
 }
 
 /** Nado engine errors that mean the wallet needs an on-chain / engine deposit first. */
+/** MetaMask “Sepolia” default — not the same network as Ink Sepolia (Nado testnet). */
+const ETHEREUM_SEPOLIA_CHAIN_ID = 11155111
+
 function isNadoDepositPrerequisiteError(message) {
   if (!message || typeof message !== 'string') return false
   const m = message.toLowerCase()
@@ -76,7 +79,11 @@ export default function Account() {
   const sessionMatchesWallet =
     !sessionAddr || !walletAddr ? true : sessionAddr === walletAddr
 
-  const canQueryNado =
+  /** Engine summary for gating linked signer — does not require THORNado SIWE session. */
+  const canQueryNadoEngine =
+    Boolean(address && publicClient && walletClient && !onWrongChain)
+
+  const canShowNadoSummarySection =
     Boolean(
       session &&
         address &&
@@ -92,7 +99,7 @@ export default function Account() {
       chainEnv,
       derivedSignerAddress ?? 'no-linked-signer',
     ],
-    enabled: canQueryNado,
+    enabled: canQueryNadoEngine,
     queryFn: async () => {
       const client = getNadoClient()
       if (!client) {
@@ -104,6 +111,14 @@ export default function Account() {
       })
     },
   })
+
+  const nadoDepositRequiredForLinkedSigner =
+    nadoQuery.isSuccess && nadoQuery.data && nadoQuery.data.exists === false
+
+  const nadoEngineCheckLoading = canQueryNadoEngine && nadoQuery.isLoading
+
+  const nadoAppOrigin =
+    chainEnv === 'inkMainnet' ? 'https://app.nado.xyz' : 'https://testnet.nado.xyz'
 
   const runSiwe = useCallback(async () => {
     if (!address) return
@@ -203,8 +218,75 @@ export default function Account() {
 
       <section className="rounded-xl border border-white/10 bg-[rgba(12,14,32,0.72)] p-5 backdrop-blur-md">
         <h2 className="text-xs font-bold uppercase tracking-[0.2em] text-slate-500">
-          THORNado session
+          Session
         </h2>
+        {connStatus === 'connecting' || connStatus === 'reconnecting' ? (
+          <div className="mt-4 flex items-center gap-2 text-sm text-slate-400">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Connecting wallet…
+          </div>
+        ) : !isConnected ? (
+          <div className="mt-4">
+            <button
+              type="button"
+              disabled={connectPending}
+              onClick={() => {
+                const c = connectors[0]
+                if (c) connect({ connector: c })
+              }}
+              className="inline-flex items-center gap-2 rounded-lg bg-violet-500/90 px-4 py-2.5 text-sm font-medium text-white shadow-lg shadow-violet-500/20 transition hover:bg-violet-400 disabled:opacity-50"
+            >
+              <Wallet className="h-4 w-4" />
+              {connectPending ? 'Connecting…' : 'Connect wallet'}
+            </button>
+          </div>
+        ) : (
+          <div className="mt-4 space-y-3 text-sm">
+            <div className="font-mono text-violet-100">{formatAddress(address)}</div>
+            <div className="text-slate-500">
+              <span className="text-slate-400">Current network:</span> chain{' '}
+              {chainId ?? '—'}
+              {onWrongChain && (
+                <>
+                  {' '}
+                  <span className="text-amber-200/90">
+                    — need {activeChain.name}{' '}
+                    <span className="font-mono">({activeChain.id})</span>
+                  </span>
+                </>
+              )}
+            </div>
+            {onWrongChain && chainId === ETHEREUM_SEPOLIA_CHAIN_ID && (
+              <p className="text-[11px] leading-relaxed text-amber-100/90">
+                You are on <span className="font-medium">Ethereum Sepolia</span> (L1 testnet).
+                THORNado / Nado use{' '}
+                <span className="font-medium">Ink Sepolia</span>, a different network (chain{' '}
+                {activeChain.id}). Getting ETH from an Ethereum Sepolia faucet does not fund
+                Ink Sepolia — switch here, then use an{' '}
+                <span className="font-medium">Ink</span> testnet faucet if you still need gas.
+              </p>
+            )}
+            {onWrongChain && (
+              <button
+                type="button"
+                disabled={switchPending}
+                onClick={() => switchChain({ chainId: activeChain.id })}
+                className="rounded-lg border border-amber-400/40 bg-amber-400/10 px-3 py-2 text-xs font-medium text-amber-100"
+              >
+                {switchPending ? 'Switching…' : `Switch to ${activeChain.name}`}
+              </button>
+            )}
+            {!session && (
+              <button
+                type="button"
+                onClick={() => disconnect()}
+                className="block text-xs text-slate-500 underline hover:text-slate-300"
+              >
+                Disconnect wallet
+              </button>
+            )}
+          </div>
+        )}
         {sessionLoading && (
           <div className="mt-4 flex items-center gap-2 text-sm text-slate-400">
             <Loader2 className="h-4 w-4 animate-spin" />
@@ -214,10 +296,10 @@ export default function Account() {
         {sessionError && (
           <p className="mt-4 text-sm text-rose-300">Could not load session.</p>
         )}
-        {!sessionLoading && !session && (
+        {!sessionLoading && !session && isConnected && (
           <p className="mt-4 text-sm text-slate-400">
-            No server session yet. Connect your wallet on {activeChain.name} (chain{' '}
-            {activeChain.id}), then approve the sign-in prompt.
+            No server session yet. Use the correct network above, then approve the sign-in
+            prompt.
           </p>
         )}
         {signing && needsServerSession && (
@@ -247,60 +329,6 @@ export default function Account() {
         )}
       </section>
 
-      <section className="rounded-xl border border-white/10 bg-[rgba(12,14,32,0.72)] p-5 backdrop-blur-md">
-        <h2 className="text-xs font-bold uppercase tracking-[0.2em] text-slate-500">
-          Wallet
-        </h2>
-        {connStatus === 'connecting' || connStatus === 'reconnecting' ? (
-          <div className="mt-4 flex items-center gap-2 text-sm text-slate-400">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            Connecting…
-          </div>
-        ) : !isConnected ? (
-          <div className="mt-4">
-            <button
-              type="button"
-              disabled={connectPending}
-              onClick={() => {
-                const c = connectors[0]
-                if (c) connect({ connector: c })
-              }}
-              className="inline-flex items-center gap-2 rounded-lg bg-violet-500/90 px-4 py-2.5 text-sm font-medium text-white shadow-lg shadow-violet-500/20 transition hover:bg-violet-400 disabled:opacity-50"
-            >
-              <Wallet className="h-4 w-4" />
-              {connectPending ? 'Connecting…' : 'Connect wallet'}
-            </button>
-          </div>
-        ) : (
-          <div className="mt-4 space-y-3 text-sm">
-            <div className="font-mono text-violet-100">{formatAddress(address)}</div>
-            <div className="text-slate-500">
-              Chain: {chainId ?? '—'}{' '}
-              {onWrongChain && `(needs ${activeChain.name})`}
-            </div>
-            {onWrongChain && (
-              <button
-                type="button"
-                disabled={switchPending}
-                onClick={() => switchChain({ chainId: activeChain.id })}
-                className="rounded-lg border border-amber-400/40 bg-amber-400/10 px-3 py-2 text-xs font-medium text-amber-100"
-              >
-                {switchPending ? 'Switching…' : `Switch to ${activeChain.name}`}
-              </button>
-            )}
-            {!session && (
-              <button
-                type="button"
-                onClick={() => disconnect()}
-                className="block text-xs text-slate-500 underline hover:text-slate-300"
-              >
-                Disconnect wallet
-              </button>
-            )}
-          </div>
-        )}
-      </section>
-
       {isConnected && !onWrongChain && walletClient && (
         <section className="rounded-xl border border-white/10 bg-[rgba(12,14,32,0.72)] p-5 backdrop-blur-md">
           <h2 className="text-xs font-bold uppercase tracking-[0.2em] text-slate-500">
@@ -312,6 +340,33 @@ export default function Account() {
             it on the engine. The key is stored in{' '}
             <span className="text-slate-400">localStorage</span> for this wallet + chain.
           </p>
+          {nadoEngineCheckLoading && (
+            <p className="mt-2 flex items-center gap-2 text-[11px] text-slate-400">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              Checking subaccount on Nado engine…
+            </p>
+          )}
+          {nadoDepositRequiredForLinkedSigner && (
+            <div className="mt-3 rounded-lg border border-amber-400/30 bg-amber-950/30 px-3 py-2 text-[11px] leading-relaxed text-amber-100/95">
+              <span className="font-semibold text-amber-50">
+                Deposit on Nado before linked signer.
+              </span>{' '}
+              Nado returns error <span className="font-mono">2024</span> until this subaccount
+              has a deposit on the engine. Open{' '}
+              <a
+                href={nadoAppOrigin}
+                target="_blank"
+                rel="noreferrer"
+                className="text-violet-300 underline hover:text-violet-200"
+              >
+                {nadoAppOrigin.replace('https://', '')}
+              </a>
+              , use the same wallet on <span className="text-amber-50/95">{activeChain.name}</span>
+              , claim testnet funds if needed, then deposit. Reload this page — when the
+              engine shows your subaccount exists (see the Nado panel if you are signed in
+              to THORNado), this button unlocks.
+            </div>
+          )}
           <div className="mt-3 space-y-1 font-mono text-[11px] text-slate-400">
             {engineSignerLoading ? (
               <div className="flex items-center gap-2">
@@ -333,9 +388,8 @@ export default function Account() {
                 </div>
                 {derivedSignerAddress && engineSignerMatchesLocal && (
                   <p className="text-emerald-300/90">
-                    Linked signer ready — Terminal can use{' '}
-                    <code className="text-emerald-200/90">useNadoLinkedSigner()</code>{' '}
-                    + <code className="text-emerald-200/90">getNadoClient()</code>.
+                    You&apos;re all set: fast signing is on. The Trading terminal can place
+                    Nado orders without asking your wallet for every signature.
                   </p>
                 )}
                 {derivedSignerAddress &&
@@ -372,7 +426,9 @@ export default function Account() {
               type="button"
               disabled={
                 linking ||
-                (engineSignerMatchesLocal && Boolean(derivedSignerAddress))
+                (engineSignerMatchesLocal && Boolean(derivedSignerAddress)) ||
+                nadoDepositRequiredForLinkedSigner ||
+                nadoEngineCheckLoading
               }
               onClick={() => void linkSigner()}
               className="inline-flex items-center gap-2 rounded-lg bg-violet-600/90 px-3 py-2 text-xs font-medium text-white transition hover:bg-violet-500 disabled:opacity-50"
@@ -417,7 +473,7 @@ export default function Account() {
         </section>
       )}
 
-      {session && sessionMatchesWallet && !onWrongChain && (
+      {canShowNadoSummarySection && (
         <section className="rounded-xl border border-white/10 bg-[rgba(12,14,32,0.72)] p-5 backdrop-blur-md">
           <h2 className="text-xs font-bold uppercase tracking-[0.2em] text-slate-500">
             Nado ({chainEnv === 'inkMainnet' ? 'mainnet' : 'testnet'}) — subaccount
