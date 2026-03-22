@@ -7,7 +7,7 @@ THORNado is a React + Go visual concept for an AI trading terminal.
 - **Node.js** (for the Vite/React client)
 - **Go 1.21+** (for the API gateway in `gateway/`)
 
-## Run (one command)
+## Run (frontend only)
 
 From the repo root:
 
@@ -17,16 +17,11 @@ npm run install:all
 npm run dev
 ```
 
-This starts:
+This starts **only** the **Frontend (Vite + React):** http://localhost:5173 — routes: `/` (landing), `/terminal`
 
-- **Frontend (Vite + React):** http://localhost:5173 — routes: `/` (landing), `/terminal`
-- **Go gateway (Echo API):** http://localhost:3001 — e.g. http://localhost:3001/api/health
+## Run (gateway + frontend)
 
-Override the gateway port: `PORT=4000 npm run dev` (Unix) or `set PORT=4000&& npm run dev` (Windows cmd).
-
-## Run (two terminals)
-
-If you prefer separate processes:
+**Option A — two terminals (recommended)**
 
 **Terminal 1 — gateway**
 
@@ -35,7 +30,24 @@ cd gateway
 go run .
 ```
 
-**Terminal 2 — client**
+Echo API: http://localhost:3001 — e.g. http://localhost:3001/api/health  
+Override the gateway port: `PORT=4000 go run .` (Unix).
+
+**Terminal 2 — client** (from repo root)
+
+```bash
+npm run dev
+```
+
+**Option B — one command (both processes)**
+
+```bash
+npm run dev:all
+```
+
+This runs the gateway and the client together (same as the old `npm run dev` behavior).
+
+## Run (client only, from `client/`)
 
 ```bash
 cd client
