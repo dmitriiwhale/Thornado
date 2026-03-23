@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
 import {
   useConnection,
   useConnect,
@@ -14,8 +13,10 @@ import {
 import { Loader2, LogOut, Wallet } from 'lucide-react'
 import { useInvalidateSession, useSession } from '../hooks/useSession.js'
 import { logoutSession, signInWithThornado } from '../lib/siweAuth.js'
+import { usePortfolioData } from '../hooks/usePortfolioData.js'
 import { useNadoLinkedSigner } from '../context/NadoLinkedSignerContext.jsx'
 import { useNadoNetwork } from '../context/NadoNetworkContext.jsx'
+import NadoPortfolioView from '../components/portfolio/NadoPortfolioView.jsx'
 
 function formatAddress(a) {
   if (!a) return ''
@@ -92,30 +93,21 @@ export default function Account() {
         !onWrongChain
     )
 
-  const nadoQuery = useQuery({
-    queryKey: [
-      'nado-subaccount-summary',
-      walletAddr,
-      chainEnv,
-      derivedSignerAddress ?? 'no-linked-signer',
-    ],
+  const portfolio = usePortfolioData({
+    getNadoClient,
     enabled: canQueryNadoEngine,
-    queryFn: async () => {
-      const client = getNadoClient()
-      if (!client) {
-        throw new Error('Nado client unavailable')
-      }
-      return client.subaccount.getSubaccountSummary({
-        subaccountOwner: address,
-        subaccountName: 'default',
-      })
-    },
+    ownerAddress: address,
+    chainEnv,
+    subaccountName: 'default',
   })
 
   const nadoDepositRequiredForLinkedSigner =
-    nadoQuery.isSuccess && nadoQuery.data && nadoQuery.data.exists === false
+    portfolio.queries.summary.isSuccess &&
+    portfolio.summary &&
+    portfolio.summary.exists === false
 
-  const nadoEngineCheckLoading = canQueryNadoEngine && nadoQuery.isLoading
+  const nadoEngineCheckLoading =
+    canQueryNadoEngine && portfolio.queries.summary.isLoading
 
   const nadoAppOrigin =
     chainEnv === 'inkMainnet' ? 'https://app.nado.xyz' : 'https://testnet.nado.xyz'
@@ -186,10 +178,10 @@ export default function Account() {
   }, [invalidateSession, disconnect])
 
   const healthMaintenance = useMemo(() => {
-    const h = nadoQuery.data?.health?.maintenance?.health
+    const h = portfolio.risk?.maintenanceHealth
     if (h == null) return null
     return typeof h?.toString === 'function' ? h.toString() : String(h)
-  }, [nadoQuery.data])
+  }, [portfolio.risk])
 
   const needsServerSession =
     isConnected &&
@@ -198,7 +190,7 @@ export default function Account() {
     !onWrongChain
 
   return (
-    <div className="mx-auto flex max-w-2xl flex-col gap-8 px-5 py-10 text-slate-200">
+    <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 px-5 py-8 text-slate-200">
       <div>
         <Link
           to="/"
@@ -474,45 +466,24 @@ export default function Account() {
       )}
 
       {canShowNadoSummarySection && (
-        <section className="rounded-xl border border-white/10 bg-[rgba(12,14,32,0.72)] p-5 backdrop-blur-md">
-          <h2 className="text-xs font-bold uppercase tracking-[0.2em] text-slate-500">
-            Nado ({chainEnv === 'inkMainnet' ? 'mainnet' : 'testnet'}) — subaccount
-            &quot;default&quot;
-          </h2>
-          {nadoQuery.isLoading && (
-            <div className="mt-4 flex items-center gap-2 text-sm text-slate-400">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Loading engine data…
-            </div>
-          )}
-          {nadoQuery.error && (
-            <p className="mt-4 text-sm text-rose-300">
-              {nadoQuery.error.message || 'Query failed (empty account or RPC).'}
-            </p>
-          )}
-          {nadoQuery.data && (
-            <dl className="mt-4 space-y-2 font-mono text-xs text-slate-300">
-              <div className="flex justify-between gap-4">
-                <dt className="text-slate-500">Exists on engine</dt>
-                <dd>{nadoQuery.data.exists ? 'yes' : 'no'}</dd>
-              </div>
-              <div className="flex justify-between gap-4">
-                <dt className="text-slate-500">Balance rows</dt>
-                <dd>{nadoQuery.data.balances?.length ?? 0}</dd>
-              </div>
-              {healthMaintenance != null && (
-                <div className="flex justify-between gap-4">
-                  <dt className="text-slate-500">Maintenance health</dt>
-                  <dd className="max-w-[60%] break-all">{healthMaintenance}</dd>
-                </div>
-              )}
-              <p className="pt-2 text-[11px] leading-relaxed text-slate-500">
-                Read-only summary from the Nado engine ({activeChain.name}). Extend this
-                panel with per-product balances when you wire the terminal.
+        <>
+          <NadoPortfolioView
+            walletAddress={address}
+            chainEnv={chainEnv}
+            nadoAppOrigin={nadoAppOrigin}
+            portfolio={portfolio}
+            healthMaintenance={healthMaintenance}
+          />
+          {portfolio.hasAnyError && !portfolio.isLoadingAny && (
+            <section className="rounded-xl border border-amber-400/30 bg-amber-950/20 p-4">
+              <p className="text-sm text-amber-100">
+                Some portfolio sections are partially unavailable with the current Nado API
+                methods in this SDK version. Core account access and linked signer flow stay
+                operational.
               </p>
-            </dl>
+            </section>
           )}
-        </section>
+        </>
       )}
     </div>
   )
