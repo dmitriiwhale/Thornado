@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react'
 import NadoDepositWithdrawModal from './NadoDepositWithdrawModal.jsx'
+import NadoTransferModal from './NadoTransferModal.jsx'
 import { CHAIN_ENV_TO_CHAIN } from '@nadohq/shared'
 import { fmt, tradeSideClass } from '../../lib/portfolioAdapters.js'
 import { tokenLogoCandidates } from '../../lib/tokenLogoUrls.js'
@@ -132,6 +133,7 @@ export default function NadoPortfolioView({
 }) {
   const [mainTab, setMainTab] = useState('overview')
   const [dwModal, setDwModal] = useState(null)
+  const [transferOpen, setTransferOpen] = useState(false)
 
   const chainId = CHAIN_ENV_TO_CHAIN[chainEnv]?.id
 
@@ -168,14 +170,14 @@ export default function NadoPortfolioView({
             </div>
           </div>
           <div className="flex flex-wrap gap-1.5 sm:justify-end">
-            <a
-              href={nadoAppOrigin}
-              target="_blank"
-              rel="noreferrer"
-              className="rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-medium text-slate-200 transition hover:bg-white/10"
+            <button
+              type="button"
+              disabled={!depositWithdrawEnabled}
+              onClick={() => setTransferOpen(true)}
+              className="rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-medium text-slate-200 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"
             >
               Transfer
-            </a>
+            </button>
             <button
               type="button"
               onClick={() => setDwModal('withdraw')}
@@ -232,6 +234,14 @@ export default function NadoPortfolioView({
         open={Boolean(dwModal)}
         mode={dwModal}
         onClose={() => setDwModal(null)}
+        getNadoClient={getNadoClient}
+        ownerAddress={walletAddress}
+        subaccountName="default"
+        onCompleted={onInvalidatePortfolio}
+      />
+      <NadoTransferModal
+        open={transferOpen}
+        onClose={() => setTransferOpen(false)}
         getNadoClient={getNadoClient}
         ownerAddress={walletAddress}
         subaccountName="default"

@@ -1,5 +1,5 @@
 import { ProductEngineType } from '@nadohq/shared'
-import { erc20Abi, parseUnits } from 'viem'
+import { erc20Abi, formatUnits, parseUnits } from 'viem'
 
 export const DEFAULT_COLLATERAL_PRODUCT_ID = 0
 
@@ -162,6 +162,73 @@ export async function executeWithdraw(client, { subaccountOwner, subaccountName,
     subaccountOwner,
     subaccountName,
     productId,
+    amount,
+  })
+}
+
+function engineAmountToBigInt(v) {
+  if (v == null) return 0n
+  if (typeof v === 'bigint') return v
+  try {
+    return BigInt(String(v))
+  } catch {
+    return 0n
+  }
+}
+
+/**
+ * Quote spot balance for a subaccount (default product 0) as ERC20 raw units + formatted string.
+ */
+export async function fetchQuoteSpotBalance(client, { subaccountOwner, subaccountName, productId = DEFAULT_COLLATERAL_PRODUCT_ID }) {
+  const summary = await client.subaccount.getSubaccountSummary({
+    subaccountOwner,
+    subaccountName,
+  })
+  const balances = summary?.balances ?? []
+  const row = balances.find((b) => Number(b.productId ?? b.product_id) === Number(productId))
+  const meta = await getSpotCollateralMeta(client, productId)
+  if (!row) {
+    return {
+      raw: 0n,
+      human: formatUnits(0n, meta.decimals),
+      decimals: meta.decimals,
+      tokenAddr: meta.tokenAddr,
+    }
+  }
+  const amt = row.amount ?? row.balance ?? row.total
+  const x18 = engineAmountToBigInt(amt)
+  const raw = engineX18ToTokenRaw(x18, meta.decimals)
+  return {
+    raw,
+    human: formatUnits(raw, meta.decimals),
+    decimals: meta.decimals,
+    tokenAddr: meta.tokenAddr,
+  }
+}
+
+/** Ticker for quote spot product (engine `getSymbols`), e.g. USDT0. */
+export async function fetchQuoteProductSymbol(client, productId = DEFAULT_COLLATERAL_PRODUCT_ID) {
+  try {
+    const res = await client.context.engineClient.getSymbols({ productIds: [productId] })
+    const obj = res?.symbols ?? {}
+    for (const [k, v] of Object.entries(obj)) {
+      const pid = v?.productId ?? k
+      if (Number(pid) === Number(productId)) {
+        const sym = v?.symbol ?? v?.ticker
+        if (sym != null && String(sym).trim()) return String(sym).trim()
+      }
+    }
+  } catch {
+    /* fall through */
+  }
+  return 'USDT0'
+}
+
+/** Move quote between subaccounts of the same wallet (engine `transfer_quote`). */
+export async function executeTransferQuote(client, { subaccountName, recipientSubaccountName, amount }) {
+  return client.spot.transferQuote({
+    subaccountName,
+    recipientSubaccountName,
     amount,
   })
 }
