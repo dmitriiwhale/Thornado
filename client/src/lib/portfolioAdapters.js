@@ -295,6 +295,8 @@ export function adaptBalances(payload, symbolsByProductId) {
 export function adaptPositions(payload) {
   return unwrapArray(payload).map((row, idx) => {
     const market = pick(row, ['market', 'symbol', 'instrument', 'product'], `Market ${idx + 1}`)
+    const productId = pick(row, ['productId', 'product_id'], null)
+    const tokenAddr = pick(row, ['tokenAddr', 'token', 'baseTokenAddress'], null)
     const sideRaw = pick(row, ['side', 'direction'], '')
     const side = String(sideRaw || '').toUpperCase()
     const size = pick(row, ['size', 'quantity', 'qty', 'positionSize'])
@@ -305,6 +307,8 @@ export function adaptPositions(payload) {
     return {
       id: `${market}-${idx}`,
       market: String(market),
+      productId,
+      tokenAddr: tokenAddr ? String(tokenAddr) : null,
       side: side || '—',
       size,
       entry,
@@ -341,9 +345,13 @@ export function adaptIsolatedPositions(payload, symbolsByProductId) {
     const notional =
       oraclePx != null && size != null ? oraclePx * size : fromX18(base?.vQuoteBalance)
 
+    const tokenAddr = base?.tokenAddr ?? base?.token ?? null
+
     return {
       id: `isol-${productId ?? idx}-${idx}`,
       market: mappedSymbol ?? (productId != null ? `Perp #${productId}` : `Perp ${idx + 1}`),
+      productId,
+      tokenAddr: tokenAddr ? String(tokenAddr) : null,
       side,
       size,
       entry: null,
@@ -387,10 +395,13 @@ export function adaptPerpPositionsFromBalances(payload, symbolsByProductId) {
           : null
 
       const pnlProxy = row?.vQuoteBalance != null ? fromX18(row.vQuoteBalance) : null
+      const tokenAddr = row.tokenAddr ?? row.token ?? null
 
       return {
         id: `perp-bal-${productId ?? idx}-${idx}`,
         market: String(symbol ?? (productId != null ? `Perp #${productId}` : `Perp ${idx + 1}`)),
+        productId,
+        tokenAddr: tokenAddr ? String(tokenAddr) : null,
         side,
         size,
         entry: null,

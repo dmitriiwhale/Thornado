@@ -11,6 +11,7 @@ import {
   useWalletClient,
 } from 'wagmi'
 import { Loader2, LogOut, Wallet } from 'lucide-react'
+import { useQueryClient } from '@tanstack/react-query'
 import { useInvalidateSession, useSession } from '../hooks/useSession.js'
 import { logoutSession, signInWithThornado } from '../lib/siweAuth.js'
 import { usePortfolioData } from '../hooks/usePortfolioData.js'
@@ -54,6 +55,14 @@ export default function Account() {
   const { chainEnv, activeChain } = useNadoNetwork()
   const { data: session, isLoading: sessionLoading, error: sessionError } = useSession()
   const invalidateSession = useInvalidateSession()
+  const queryClient = useQueryClient()
+
+  const invalidatePortfolio = useCallback(() => {
+    void queryClient.invalidateQueries({
+      predicate: (q) =>
+        Array.isArray(q.queryKey) && String(q.queryKey[0]).startsWith('portfolio-'),
+    })
+  }, [queryClient])
   const {
     address,
     connector,
@@ -466,6 +475,9 @@ export default function Account() {
             chainEnv={chainEnv}
             nadoAppOrigin={nadoAppOrigin}
             portfolio={portfolio}
+            getNadoClient={getNadoClient}
+            onInvalidatePortfolio={invalidatePortfolio}
+            depositWithdrawEnabled={canQueryNadoEngine}
           />
           {portfolio.hasAnyError && !portfolio.isLoadingAny && (
             <section className="rounded-xl border border-amber-400/30 bg-amber-950/20 p-4">

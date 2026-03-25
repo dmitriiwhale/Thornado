@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react'
+import NadoDepositWithdrawModal from './NadoDepositWithdrawModal.jsx'
 import { CHAIN_ENV_TO_CHAIN } from '@nadohq/shared'
 import { fmt, tradeSideClass } from '../../lib/portfolioAdapters.js'
 import { tokenLogoCandidates } from '../../lib/tokenLogoUrls.js'
@@ -125,8 +126,12 @@ export default function NadoPortfolioView({
   chainEnv,
   nadoAppOrigin,
   portfolio,
+  getNadoClient,
+  onInvalidatePortfolio,
+  depositWithdrawEnabled = false,
 }) {
   const [mainTab, setMainTab] = useState('overview')
+  const [dwModal, setDwModal] = useState(null)
 
   const chainId = CHAIN_ENV_TO_CHAIN[chainEnv]?.id
 
@@ -171,22 +176,22 @@ export default function NadoPortfolioView({
             >
               Transfer
             </a>
-            <a
-              href={nadoAppOrigin}
-              target="_blank"
-              rel="noreferrer"
-              className="rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-medium text-slate-200 transition hover:bg-white/10"
+            <button
+              type="button"
+              onClick={() => setDwModal('withdraw')}
+              disabled={!depositWithdrawEnabled}
+              className="rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-medium text-slate-200 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"
             >
               Withdraw
-            </a>
-            <a
-              href={nadoAppOrigin}
-              target="_blank"
-              rel="noreferrer"
-              className="rounded-lg bg-violet-600/90 px-3 py-1.5 text-xs font-medium text-white shadow-lg shadow-violet-500/15 transition hover:bg-violet-500"
+            </button>
+            <button
+              type="button"
+              onClick={() => setDwModal('deposit')}
+              disabled={!depositWithdrawEnabled}
+              className="rounded-lg bg-violet-600/90 px-3 py-1.5 text-xs font-medium text-white shadow-lg shadow-violet-500/15 transition hover:bg-violet-500 disabled:cursor-not-allowed disabled:opacity-40"
             >
               Deposit
-            </a>
+            </button>
           </div>
         </div>
 
@@ -222,6 +227,16 @@ export default function NadoPortfolioView({
       {mainTab === 'margin' && <MarginManagerTab portfolio={portfolio} fmt={fmt} />}
 
       {mainTab === 'history' && <HistoryTab portfolio={portfolio} fmt={fmt} />}
+
+      <NadoDepositWithdrawModal
+        open={Boolean(dwModal)}
+        mode={dwModal}
+        onClose={() => setDwModal(null)}
+        getNadoClient={getNadoClient}
+        ownerAddress={walletAddress}
+        subaccountName="default"
+        onCompleted={onInvalidatePortfolio}
+      />
     </div>
   )
 }
@@ -233,6 +248,7 @@ function OverviewTab({
   fmt,
   chainId,
 }) {
+  const [portfolioDataTab, setPortfolioDataTab] = useState('balances')
   const um = portfolio.unifiedMargin
   const loading = portfolio.queries.summary.isLoading
   const noSubaccount = portfolio.queries.summary.isSuccess && portfolio.summary?.exists === false
@@ -370,62 +386,101 @@ function OverviewTab({
         </div>
       </section>
 
-      <TableCard
-        title="Balances"
-        columns={['Asset', 'Balance / Value', 'Init.', 'Maint.']}
-        empty="No balances."
-        rows={visibleBalances.map((b) => ({
-          key: b.id,
-          cells: [
-            <AssetCell
-              key={`asset-${b.id}`}
-              symbol={b.symbol}
-              seed={b.tokenAddr ?? String(b.productId ?? b.id)}
-              tokenAddress={b.tokenAddr}
-              chainId={chainId}
-            />,
-            `${fmt.number(b.total)} · ${fmt.currency(b.usdValue)}`,
-            fmt.weightPercent(b.weightInitial),
-            fmt.weightPercent(b.weightMaintenance),
-          ],
-        }))}
-        loading={portfolio.queries.summary.isLoading || portfolio.queries.symbols?.isLoading}
-        maxBodyHeightPx={260}
-      />
+      <section className={`${C.card} overflow-hidden p-0`}>
+        <div className="flex flex-wrap gap-0.5 border-b border-white/[0.08] p-1.5">
+          {[
+            { id: 'balances', label: 'Balances' },
+            { id: 'positions', label: 'Positions' },
+            { id: 'orders', label: 'Open orders' },
+          ].map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setPortfolioDataTab(tab.id)}
+              className={`rounded-md px-3 py-1.5 text-xs font-medium transition ${
+                portfolioDataTab === tab.id
+                  ? 'bg-violet-500/20 text-violet-100'
+                  : 'text-slate-500 hover:bg-white/[0.04] hover:text-slate-300'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
 
-      <TableCard
-        title="Positions"
-        columns={['Market', 'Side', 'Size', 'Entry', 'Mark', 'PnL', 'Notional']}
-        empty={positionsError ? 'Failed to load positions.' : 'No positions.'}
-        rows={portfolio.positions.map((p) => ({
-          key: p.id,
-          cells: [
-            p.market,
-            p.side,
-            fmt.number(p.size),
-            fmt.number(p.entry),
-            fmt.number(p.mark),
-            fmt.signedCurrency(p.pnl),
-            fmt.currency(p.notional),
-          ],
-        }))}
-        loading={
-          portfolio.queries.positions.isLoading ||
-          portfolio.queries.isolatedPositions?.isLoading
-        }
-        maxBodyHeightPx={260}
-      />
-
-      <TableCard
-        title="Open orders"
-        columns={['Market', 'Side', 'Price', 'Size', 'Status']}
-        empty={ordersError ? 'Failed to load open orders.' : 'No open orders.'}
-        rows={portfolio.orders.map((o) => ({
-          key: o.id,
-          cells: [o.market, o.side, fmt.number(o.price), fmt.number(o.size), o.status],
-        }))}
-        loading={portfolio.queries.orders.isLoading}
-      />
+        {portfolioDataTab === 'balances' && (
+          <TableCard
+            key="balances"
+            showTitle={false}
+            columns={['Asset', 'Balance / Value', 'Init.', 'Maint.']}
+            empty="No balances."
+            rows={visibleBalances.map((b) => ({
+              key: b.id,
+              cells: [
+                <AssetCell
+                  key={`asset-${b.id}`}
+                  symbol={b.symbol}
+                  seed={b.tokenAddr ?? String(b.productId ?? b.id)}
+                  tokenAddress={b.tokenAddr}
+                  chainId={chainId}
+                />,
+                `${fmt.number(b.total)} · ${fmt.currency(b.usdValue)}`,
+                fmt.weightPercent(b.weightInitial),
+                fmt.weightPercent(b.weightMaintenance),
+              ],
+            }))}
+            loading={portfolio.queries.summary.isLoading || portfolio.queries.symbols?.isLoading}
+            maxBodyHeightPx={320}
+          />
+        )}
+        {portfolioDataTab === 'positions' && (
+          <TableCard
+            key="positions"
+            showTitle={false}
+            columns={['Market', 'Side', 'Size', 'Entry', 'Mark', 'PnL', 'Notional']}
+            empty={positionsError ? 'Failed to load positions.' : 'No positions.'}
+            rows={portfolio.positions.map((p) => ({
+              key: p.id,
+              cells: [
+                <AssetCell
+                  key={`pos-${p.id}`}
+                  symbol={p.market}
+                  seed={String(p.productId ?? p.tokenAddr ?? p.id)}
+                  tokenAddress={p.tokenAddr}
+                  chainId={chainId}
+                />,
+                <span key={`side-${p.id}`} className={tradeSideClass(p.side)}>
+                  {p.side}
+                </span>,
+                fmt.number(p.size),
+                fmt.number(p.entry),
+                fmt.number(p.mark),
+                fmt.signedCurrency(p.pnl),
+                fmt.currency(p.notional),
+              ],
+            }))}
+            loading={
+              portfolio.queries.positions.isLoading ||
+              portfolio.queries.isolatedPositions?.isLoading
+            }
+            maxBodyHeightPx={320}
+          />
+        )}
+        {portfolioDataTab === 'orders' && (
+          <TableCard
+            key="orders"
+            showTitle={false}
+            columns={['Market', 'Side', 'Price', 'Size', 'Status']}
+            empty={ordersError ? 'Failed to load open orders.' : 'No open orders.'}
+            rows={portfolio.orders.map((o) => ({
+              key: o.id,
+              cells: [o.market, o.side, fmt.number(o.price), fmt.number(o.size), o.status],
+            }))}
+            loading={portfolio.queries.orders.isLoading}
+            maxBodyHeightPx={320}
+          />
+        )}
+      </section>
 
       <section id="isolated" className={`${C.card} scroll-mt-4 p-4`}>
         <h3 className={C.label}>Isolated</h3>
@@ -563,6 +618,7 @@ function Row({ label, value, mono }) {
 
 function TableCard({
   title,
+  showTitle = true,
   columns,
   rows,
   empty,
@@ -571,10 +627,12 @@ function TableCard({
   footer,
 }) {
   return (
-    <section className={`${C.card} overflow-hidden p-0`}>
-      <div className="border-b border-white/[0.08] px-3 py-2">
-        <h3 className={C.label}>{title}</h3>
-      </div>
+    <section className={`${showTitle ? C.card : ''} overflow-hidden p-0`}>
+      {showTitle && title != null && (
+        <div className="border-b border-white/[0.08] px-3 py-2">
+          <h3 className={C.label}>{title}</h3>
+        </div>
+      )}
       <div
         className={`overflow-x-auto ${maxBodyHeightPx ? 'overflow-y-auto' : ''}`}
         style={maxBodyHeightPx ? { maxHeight: maxBodyHeightPx } : undefined}
