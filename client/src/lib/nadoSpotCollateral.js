@@ -3,6 +3,22 @@ import { erc20Abi, parseUnits } from 'viem'
 
 export const DEFAULT_COLLATERAL_PRODUCT_ID = 0
 
+/** Spot amounts from the engine (`getMaxWithdrawable`, balances) use 18-decimal fixed point (x18), not ERC20 raw units. */
+export const ENGINE_AMOUNT_X18_DECIMALS = 18
+
+/**
+ * Convert engine x18 amount to token raw units (for `parseUnits` / `withdraw` args).
+ * @param {bigint | { toString(): string }} x18
+ * @param {number} tokenDecimals ERC20 decimals
+ */
+export function engineX18ToTokenRaw(x18, tokenDecimals) {
+  const x = typeof x18 === 'bigint' ? x18 : BigInt(String(x18))
+  const td = BigInt(tokenDecimals)
+  const scale = 10n ** td
+  const denom = 10n ** BigInt(ENGINE_AMOUNT_X18_DECIMALS)
+  return (x * scale) / denom
+}
+
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms))
 }

@@ -1,11 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { formatUnits } from 'viem'
+import { erc20Abi, formatUnits } from 'viem'
 import { waitForTransactionReceipt } from 'viem/actions'
 import { useChainId, useSwitchChain } from 'wagmi'
 import { ChevronDown, X } from 'lucide-react'
 import BigNumber from 'bignumber.js'
 import {
   ensureDepositAllowance,
+  engineX18ToTokenRaw,
   executeDeposit,
   executeWithdraw,
   fetchLatestCollateralEvents,
@@ -41,6 +42,39 @@ function bnToBigInt(v) {
 function shortAddr(a) {
   if (!a || typeof a !== 'string') return ''
   return a.length > 12 ? `${a.slice(0, 6)}…${a.slice(-4)}` : a
+}
+
+/** Wallet / viem errors often nest `cause`; `message` may be empty on the outer object. */
+function formatUserFacingError(err) {
+  if (err == null) return 'Something went wrong'
+  if (typeof err === 'string') return err
+
+  let cur = err
+  const seen = new Set()
+  for (let i = 0; i < 10 && cur != null && typeof cur === 'object' && !seen.has(cur); i += 1) {
+    seen.add(cur)
+    const code = cur.code
+    const name = cur.name
+    if (code === 4001 || name === 'UserRejectedRequestError' || name === 'ActionRejectedError') {
+      return 'Transaction was rejected in the wallet'
+    }
+    const sm = cur.shortMessage
+    if (typeof sm === 'string' && sm.trim()) return sm.trim()
+    const msg = cur.message
+    if (typeof msg === 'string' && msg.trim()) return msg.trim()
+    const det = cur.details
+    if (typeof det === 'string' && det.trim()) return det.trim()
+    if (Array.isArray(det) && det.length) {
+      const first = det.find((x) => typeof x === 'string' && x.trim())
+      if (first) return String(first).trim()
+    }
+    cur = cur.cause
+  }
+
+  if (err instanceof Error && err.message?.trim()) return err.message.trim()
+  const s = String(err)
+  if (s && s !== '[object Object]') return s
+  return 'Request failed'
 }
 
 /** Small chain glyph — Nado shows ETH-style icon; we use Ink-themed badge. */
@@ -233,6 +267,18 @@ export default function NadoDepositWithdrawModal({
 
   const selectedToken = spotOptions.find((o) => o.productId === productId)
 
+  const maxTokenRaw = useMemo(() => {
+    if (maxWithdraw == null || meta == null) return null
+    try {
+      return engineX18ToTokenRaw(bnToBigInt(maxWithdraw), meta.decimals)
+    } catch {
+      return null
+    }
+  }, [maxWithdraw, meta])
+
+  const maxLabel =
+    maxTokenRaw != null && meta != null ? formatUnits(maxTokenRaw, meta.decimals) : null
+
   const runDeposit = async () => {
     const client = getNadoClient?.()
     if (!client?.context?.walletClient) throw new Error('Connect wallet on the correct network')
@@ -241,6 +287,18 @@ export default function NadoDepositWithdrawModal({
       throw new Error('Switch wallet to the selected Nado network first')
     }
     const raw = parseHumanAmount(amount, meta.decimals)
+    const owner = client.context.walletClient.account.address
+    const walletBalance = await client.context.publicClient.readContract({
+      address: meta.tokenAddr,
+      abi: erc20Abi,
+      functionName: 'balanceOf',
+      args: [owner],
+    })
+    if (raw > walletBalance) {
+      throw new Error(
+        `Insufficient wallet balance. Available: ${formatUnits(walletBalance, meta.decimals)}.`,
+      )
+    }
     setStep('Checking allowance…')
     const nBeforeDeposit = await readNSubmissions(client)
     const approve = await ensureDepositAllowance(client, {
@@ -296,9 +354,10 @@ export default function NadoDepositWithdrawModal({
       throw new Error('Switch wallet to the selected Nado network first')
     }
     const raw = parseHumanAmount(amount, meta.decimals)
-    const maxRaw = maxWithdraw != null ? bnToBigInt(maxWithdraw) : null
-    if (maxRaw != null && raw > maxRaw) {
-      throw new Error('Amount exceeds max withdrawable')
+    if (maxTokenRaw != null && raw > maxTokenRaw) {
+      throw new Error(
+        `Amount exceeds max withdrawable (${formatUnits(maxTokenRaw, meta.decimals)}).`,
+      )
     }
     const nBefore = await readNSubmissions(client)
     setStep('Sign withdraw in wallet…')
@@ -349,13 +408,7 @@ export default function NadoDepositWithdrawModal({
       onCompleted?.()
       onClose?.()
     } catch (err) {
-      const msg =
-        err?.shortMessage ??
-        err?.details ??
-        err?.response?.data?.error ??
-        err?.message ??
-        (typeof err === 'string' ? err : 'Request failed')
-      setError(String(msg))
+      setError(formatUserFacingError(err))
     } finally {
       setBusy(false)
       setStep('')
@@ -365,10 +418,6 @@ export default function NadoDepositWithdrawModal({
   if (!open || !mode) return null
 
   const title = mode === 'deposit' ? 'Deposit' : 'Withdraw'
-  const maxLabel =
-    maxWithdraw != null && meta
-      ? formatUnits(bnToBigInt(maxWithdraw) ?? 0n, meta.decimals)
-      : null
 
   const wrongChain = chainId !== activeChain.id
   const chainIdForLogos = activeChain?.id
@@ -550,7 +599,10 @@ export default function NadoDepositWithdrawModal({
               inputMode="decimal"
               placeholder={mode === 'deposit' ? '0.00' : maxLabel ?? '0'}
               value={amount}
-              onChange={(ev) => setAmount(ev.target.value)}
+              onChange={(ev) => {
+                setAmount(ev.target.value)
+                setError(null)
+              }}
               disabled={busy || !meta}
             />
             {mode === 'withdraw' && maxLabel != null && (
@@ -570,7 +622,11 @@ export default function NadoDepositWithdrawModal({
 
           {metaError && <p className="text-sm text-amber-200/90">{metaError}</p>}
           {step && <p className="text-xs text-slate-500">{step}</p>}
-          {error && <p className="text-sm text-rose-300/90">{error}</p>}
+          {error && (
+            <p role="alert" className="rounded-md border border-rose-500/25 bg-rose-950/40 px-3 py-2 text-sm text-rose-200/95">
+              {error}
+            </p>
+          )}
 
           <div className="flex flex-wrap gap-2 pt-1">
             <button
