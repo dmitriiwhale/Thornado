@@ -1,5 +1,5 @@
 import React from 'react'
-import { fmt } from '../../lib/portfolioAdapters.js'
+import { fmt, tradeSideClass } from '../../lib/portfolioAdapters.js'
 
 export default function PortfolioTrades({ rows, query }) {
   return (
@@ -33,7 +33,7 @@ export default function PortfolioTrades({ rows, query }) {
                 <tr key={row.id} className="border-t border-white/5">
                   <td className="py-2">{fmt.datetime(row.time)}</td>
                   <td className="py-2 text-violet-100">{row.market}</td>
-                  <td className="py-2">{row.side}</td>
+                  <td className={`py-2 ${tradeSideClass(row.side)}`}>{row.side}</td>
                   <td className="py-2">{fmt.number(row.price)}</td>
                   <td className="py-2">{fmt.number(row.size)}</td>
                   <td className="py-2">{fmt.currency(row.fee)}</td>

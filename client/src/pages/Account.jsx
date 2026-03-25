@@ -177,12 +177,6 @@ export default function Account() {
     disconnect()
   }, [invalidateSession, disconnect])
 
-  const healthMaintenance = useMemo(() => {
-    const h = portfolio.risk?.maintenanceHealth
-    if (h == null) return null
-    return typeof h?.toString === 'function' ? h.toString() : String(h)
-  }, [portfolio.risk])
-
   const needsServerSession =
     isConnected &&
     !sessionLoading &&
@@ -472,7 +466,6 @@ export default function Account() {
             chainEnv={chainEnv}
             nadoAppOrigin={nadoAppOrigin}
             portfolio={portfolio}
-            healthMaintenance={healthMaintenance}
           />
           {portfolio.hasAnyError && !portfolio.isLoadingAny && (
             <section className="rounded-xl border border-amber-400/30 bg-amber-950/20 p-4">

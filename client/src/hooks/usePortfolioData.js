@@ -2,12 +2,15 @@ import { useMemo } from 'react'
 import { useQueries, useQuery } from '@tanstack/react-query'
 import {
   adaptBalances,
+  adaptIsolatedPositions,
+  adaptPerpPositionsFromBalances,
   adaptOrders,
   adaptPnl,
   adaptPositions,
   adaptRisk,
   adaptSummary,
   adaptTrades,
+  deriveUnifiedMargin,
 } from '../lib/portfolioAdapters.js'
 
 function getInvoker(target, name) {
@@ -48,6 +51,8 @@ export function usePortfolioData({
       })
     },
   })
+
+  const rawBalances = summaryQuery.data?.balances ?? null
 
   const [positionsQuery, ordersQuery, tradesQuery, pnlQuery, riskQuery] = useQueries({
     queries: [
@@ -91,6 +96,14 @@ export function usePortfolioData({
         queryFn: async () => {
           const client = getNadoClient?.()
           if (!client) throw new Error('Nado client unavailable')
+          const indexer = client.context?.indexerClient
+          if (typeof indexer?.getPaginatedSubaccountMatchEvents === 'function') {
+            return indexer.getPaginatedSubaccountMatchEvents({
+              subaccountOwner: ownerAddress,
+              subaccountName,
+              limit: 50,
+            })
+          }
           return callFirstAvailable(
             [
               () => getInvoker(client?.subaccount, 'getSubaccountTrades'),
@@ -98,7 +111,7 @@ export function usePortfolioData({
               () => getInvoker(client?.archive, 'getTrades'),
               () => getInvoker(client?.portfolio, 'getTradeHistory'),
             ],
-            { subaccountOwner: ownerAddress, subaccountName, limit: 20 },
+            { subaccountOwner: ownerAddress, subaccountName, limit: 50 },
           )
         },
       },
@@ -137,17 +150,109 @@ export function usePortfolioData({
     ],
   })
 
+  const tradeProductIds = useMemo(() => {
+    const ev = tradesQuery.data?.events
+    if (!Array.isArray(ev)) return []
+    const ids = ev.map((e) => e?.productId ?? e?.product_id ?? null).filter((x) => x != null)
+    return Array.from(new Set(ids)).sort((a, b) => Number(a) - Number(b))
+  }, [tradesQuery.data])
+
+  const productIdsForSymbols = useMemo(() => {
+    const fromBalances =
+      Array.isArray(rawBalances) && rawBalances.length > 0
+        ? rawBalances.map((b) => b?.productId ?? b?.product_id ?? null).filter((x) => x != null)
+        : []
+    const uniq = Array.from(new Set([...fromBalances, ...tradeProductIds]))
+    return uniq.sort((a, b) => Number(a) - Number(b))
+  }, [rawBalances, tradeProductIds])
+
+  const symbolsQuery = useQuery({
+    queryKey: [
+      'portfolio-symbols',
+      ownerAddress,
+      chainEnv,
+      subaccountName,
+      productIdsForSymbols.join(','),
+    ],
+    enabled: Boolean(enabled && ownerAddress && productIdsForSymbols.length),
+    queryFn: async () => {
+      const client = getNadoClient?.()
+      if (!client) throw new Error('Nado client unavailable')
+      return client.context.engineClient.getSymbols({
+        productIds: productIdsForSymbols,
+      })
+    },
+  })
+
+  const symbolsByProductId = useMemo(() => {
+    const symbolsObj = symbolsQuery.data?.symbols ?? null
+    if (!symbolsObj || typeof symbolsObj !== 'object') return {}
+    const map = {}
+    for (const [key, v] of Object.entries(symbolsObj)) {
+      const pid = v?.productId ?? key
+      const sym = v?.symbol ?? v?.ticker ?? null
+      if (sym != null && pid != null) map[String(pid)] = String(sym)
+    }
+    return map
+  }, [symbolsQuery.data])
+
+  const isolatedPositionsQuery = useQuery({
+    queryKey: ['portfolio-isolated-positions', ownerAddress, chainEnv, subaccountName],
+    enabled: Boolean(enabled && ownerAddress),
+    queryFn: async () => {
+      const client = getNadoClient?.()
+      if (!client) throw new Error('Nado client unavailable')
+      // In this SDK version we only have isolated positions (cross positions endpoint is not exposed).
+      return client.subaccount.getIsolatedPositions({
+        subaccountOwner: ownerAddress,
+        subaccountName,
+      })
+    },
+  })
+
   const summary = useMemo(() => adaptSummary(summaryQuery.data), [summaryQuery.data])
   const balances = useMemo(
-    () => adaptBalances(summaryQuery.data?.balances ?? summary?.balances ?? []),
-    [summaryQuery.data, summary],
+    () =>
+      adaptBalances(
+        summaryQuery.data?.balances ?? summary?.balances ?? [],
+        symbolsByProductId,
+      ),
+    [summaryQuery.data, summary, symbolsByProductId],
   )
-  const positions = useMemo(
+  const crossPositions = useMemo(
     () => adaptPositions(positionsQuery.data),
     [positionsQuery.data],
   )
+
+  const isolatedPositions = useMemo(
+    () =>
+      adaptIsolatedPositions(
+        isolatedPositionsQuery.data,
+        symbolsByProductId,
+      ),
+    [isolatedPositionsQuery.data, symbolsByProductId],
+  )
+
+  const perpPositionsFromBalances = useMemo(
+    () =>
+      adaptPerpPositionsFromBalances(
+        summaryQuery.data?.balances ?? [],
+        symbolsByProductId,
+      ),
+    [summaryQuery.data, symbolsByProductId],
+  )
+
+  const positions = useMemo(() => {
+    // Prefer standard positions when available; otherwise fall back to isolated positions.
+    if (crossPositions?.length) return crossPositions
+    if (isolatedPositions?.length) return isolatedPositions
+    return perpPositionsFromBalances
+  }, [crossPositions, isolatedPositions, perpPositionsFromBalances])
   const orders = useMemo(() => adaptOrders(ordersQuery.data), [ordersQuery.data])
-  const trades = useMemo(() => adaptTrades(tradesQuery.data), [tradesQuery.data])
+  const trades = useMemo(
+    () => adaptTrades(tradesQuery.data, symbolsByProductId),
+    [tradesQuery.data, symbolsByProductId],
+  )
   const pnl = useMemo(
     () => adaptPnl(pnlQuery.data, summary),
     [pnlQuery.data, summary],
@@ -157,7 +262,21 @@ export function usePortfolioData({
     [riskQuery.data, summary],
   )
 
-  const queries = [summaryQuery, positionsQuery, ordersQuery, tradesQuery, pnlQuery, riskQuery]
+  const unifiedMargin = useMemo(
+    () => deriveUnifiedMargin(summaryQuery.data),
+    [summaryQuery.data],
+  )
+
+  const queries = [
+    summaryQuery,
+    symbolsQuery,
+    positionsQuery,
+    isolatedPositionsQuery,
+    ordersQuery,
+    tradesQuery,
+    pnlQuery,
+    riskQuery,
+  ]
   const isLoadingAny = queries.some((q) => q.isLoading)
   const hasAnyError = queries.some((q) => q.error)
 
@@ -169,9 +288,12 @@ export function usePortfolioData({
     trades,
     pnl,
     risk,
+    unifiedMargin,
     queries: {
       summary: summaryQuery,
+      symbols: symbolsQuery,
       positions: positionsQuery,
+      isolatedPositions: isolatedPositionsQuery,
       orders: ordersQuery,
       trades: tradesQuery,
       pnl: pnlQuery,
