@@ -1,4 +1,10 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import { Link } from 'react-router-dom'
 import {
   useConnection,
@@ -10,7 +16,7 @@ import {
   useSwitchChain,
   useWalletClient,
 } from 'wagmi'
-import { Loader2, LogOut, Wallet } from 'lucide-react'
+import { Check, Loader2, LogOut, Wallet } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useInvalidateSession, useSession } from '../hooks/useSession.js'
 import { logoutSession, signInWithThornado } from '../lib/siweAuth.js'
@@ -19,9 +25,65 @@ import { useNadoLinkedSigner } from '../context/NadoLinkedSignerContext.jsx'
 import { useNadoNetwork } from '../context/NadoNetworkContext.jsx'
 import NadoPortfolioView from '../components/portfolio/NadoPortfolioView.jsx'
 
-function formatAddress(a) {
-  if (!a) return ''
-  return `${a.slice(0, 6)}…${a.slice(-4)}`
+/** Sidebar: show 0x1234…abcd; click copies full address (clipboard). */
+function AddressAbbr({ address, className = '' }) {
+  const full = address ? String(address).trim() : ''
+  const [copied, setCopied] = useState(false)
+  const copyClearRef = useRef(null)
+
+  useEffect(() => {
+    return () => {
+      if (copyClearRef.current) clearTimeout(copyClearRef.current)
+    }
+  }, [])
+
+  const handleCopy = useCallback(
+    async (e) => {
+      e?.stopPropagation?.()
+      try {
+        await navigator.clipboard.writeText(full)
+        setCopied(true)
+        if (copyClearRef.current) clearTimeout(copyClearRef.current)
+        copyClearRef.current = setTimeout(() => setCopied(false), 2000)
+      } catch {
+        /* ignore */
+      }
+    },
+    [full],
+  )
+
+  if (!full) {
+    return <span className={className}>—</span>
+  }
+
+  const shown =
+    full.length <= 14 ? full : `${full.slice(0, 6)}…${full.slice(-4)}`
+
+  return (
+    <span className="inline-flex max-w-full min-w-0 items-center gap-1.5">
+      <button
+        type="button"
+        onClick={handleCopy}
+        className={`min-w-0 max-w-full rounded px-0.5 py-0.5 text-left font-mono text-sm tabular-nums transition hover:bg-white/5 ${className}`}
+        aria-label={`Copy address: ${full}`}
+      >
+        <span className="block min-w-0 truncate">{shown}</span>
+      </button>
+      {copied ? (
+        <span
+          role="status"
+          className="inline-flex shrink-0 items-center gap-1 font-sans"
+        >
+          <Check
+            className="h-3.5 w-3.5 text-emerald-400"
+            strokeWidth={2.5}
+            aria-hidden
+          />
+          <span className="text-[10px] font-medium text-emerald-400">Copied!</span>
+        </span>
+      ) : null}
+    </span>
+  )
 }
 
 /** Nado engine errors that mean the wallet needs an on-chain / engine deposit first. */
@@ -39,6 +101,8 @@ function isNadoDepositPrerequisiteError(message) {
     (m.includes('deposit') && m.includes('address'))
   )
 }
+
+const NADO_ZERO_SIGNER = '0x0000000000000000000000000000000000000000'
 
 export default function Account() {
   const {
@@ -192,157 +256,199 @@ export default function Account() {
     (!session || !sessionMatchesWallet) &&
     !onWrongChain
 
+  const asideCard =
+    'rounded-lg border border-white/10 bg-[rgba(12,14,32,0.85)] p-3 backdrop-blur-md'
+
   return (
-    <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 px-5 py-8 text-slate-200">
-      <div>
+    <div className="mx-auto w-full max-w-7xl px-4 py-6 text-slate-200 sm:px-5 sm:py-8">
+      <div className="mb-6">
         <Link
           to="/"
           className="text-sm text-violet-300/90 hover:text-violet-200"
         >
           ← Back
         </Link>
-        <h1 className="mt-4 text-2xl font-semibold tracking-tight text-white">
+        <h1 className="mt-3 text-2xl font-semibold tracking-tight text-white sm:mt-4">
           Account
         </h1>
-        <p className="mt-1 text-sm text-slate-400">
-          Wallet connect only links your extension to this site. A SIWE signature lets
-          the Thornado server issue a session cookie. That is separate from Nado on-chain
-          trading auth.
-        </p>
       </div>
 
-      <section className="rounded-xl border border-white/10 bg-[rgba(12,14,32,0.72)] p-5 backdrop-blur-md">
-        <h2 className="text-xs font-bold uppercase tracking-[0.2em] text-slate-500">
-          Session
-        </h2>
-        {connStatus === 'connecting' || connStatus === 'reconnecting' ? (
-          <div className="mt-4 flex items-center gap-2 text-sm text-slate-400">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            Connecting wallet…
-          </div>
-        ) : !isConnected ? (
-          <div className="mt-4">
-            <button
-              type="button"
-              disabled={connectPending}
-              onClick={() => {
-                const c = connectors[0]
-                if (c) connect({ connector: c })
-              }}
-              className="inline-flex items-center gap-2 rounded-lg bg-violet-500/90 px-4 py-2.5 text-sm font-medium text-white shadow-lg shadow-violet-500/20 transition hover:bg-violet-400 disabled:opacity-50"
-            >
-              <Wallet className="h-4 w-4" />
-              {connectPending ? 'Connecting…' : 'Connect wallet'}
-            </button>
-          </div>
-        ) : (
-          <div className="mt-4 space-y-3 text-sm">
-            <div className="font-mono text-violet-100">{formatAddress(address)}</div>
-            <div className="text-slate-500">
-              <span className="text-slate-400">Current network:</span> chain{' '}
-              {chainId ?? '—'}
-              {onWrongChain && (
-                <>
-                  {' '}
-                  <span className="text-amber-200/90">
-                    — need {activeChain.name}{' '}
-                    <span className="font-mono">({activeChain.id})</span>
-                  </span>
-                </>
+      <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:gap-8">
+        {/* Main: portfolio first on mobile (order), primary reading column on desktop */}
+        <div className="order-1 flex min-w-0 flex-1 flex-col gap-6 lg:order-1">
+          {signError && isConnected && !onWrongChain && (
+            <section className="rounded-xl border border-rose-400/30 bg-rose-950/20 p-5">
+              <p className="text-sm text-rose-200">{signError}</p>
+              <button
+                type="button"
+                disabled={signing}
+                onClick={() => {
+                  siweAttemptKey.current = ''
+                  void runSiwe()
+                }}
+                className="mt-3 rounded-lg bg-white/10 px-4 py-2 text-sm font-medium text-white hover:bg-white/15 disabled:opacity-50"
+              >
+                {signing ? '…' : 'Retry sign-in'}
+              </button>
+            </section>
+          )}
+
+          {canShowNadoSummarySection && (
+            <>
+              <NadoPortfolioView
+                walletAddress={address}
+                chainEnv={chainEnv}
+                nadoAppOrigin={nadoAppOrigin}
+                portfolio={portfolio}
+                getNadoClient={getNadoClient}
+                onInvalidatePortfolio={invalidatePortfolio}
+                depositWithdrawEnabled={canQueryNadoEngine}
+              />
+              {portfolio.hasAnyError && !portfolio.isLoadingAny && (
+                <section className="rounded-xl border border-amber-400/30 bg-amber-950/20 p-4">
+                  <p className="text-sm text-amber-100">
+                    Some portfolio sections are partially unavailable with the current Nado API
+                    methods in this SDK version. Core account access and linked signer flow stay
+                    operational.
+                  </p>
+                </section>
               )}
-            </div>
-            {onWrongChain && chainId === ETHEREUM_SEPOLIA_CHAIN_ID && (
-              <p className="text-[11px] leading-relaxed text-amber-100/90">
-                You are on <span className="font-medium">Ethereum Sepolia</span> (L1 testnet).
-                THORNado / Nado use{' '}
-                <span className="font-medium">Ink Sepolia</span>, a different network (chain{' '}
-                {activeChain.id}). Getting ETH from an Ethereum Sepolia faucet does not fund
-                Ink Sepolia — switch here, then use an{' '}
-                <span className="font-medium">Ink</span> testnet faucet if you still need gas.
+            </>
+          )}
+        </div>
+
+        {/* Secondary: wallet + session + linked signer — sticky on wide screens */}
+        <aside className="order-2 flex w-full shrink-0 flex-col gap-3 lg:sticky lg:top-6 lg:order-2 lg:w-72 lg:max-w-[18rem] lg:max-h-[calc(100vh-1.5rem)] lg:overflow-y-auto">
+          <section className={asideCard}>
+            <h2 className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">
+              Session
+            </h2>
+            {connStatus === 'connecting' || connStatus === 'reconnecting' ? (
+              <div className="mt-3 flex items-center gap-2 text-xs text-slate-400">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Connecting wallet…
+              </div>
+            ) : !isConnected ? (
+              <div className="mt-3">
+                <button
+                  type="button"
+                  disabled={connectPending}
+                  onClick={() => {
+                    const c = connectors[0]
+                    if (c) connect({ connector: c })
+                  }}
+                  className="inline-flex items-center gap-2 rounded-lg bg-violet-500/90 px-3 py-2 text-xs font-medium text-white shadow-lg shadow-violet-500/20 transition hover:bg-violet-400 disabled:opacity-50"
+                >
+                  <Wallet className="h-4 w-4" />
+                  {connectPending ? 'Connecting…' : 'Connect wallet'}
+                </button>
+              </div>
+            ) : (
+              <div className="mt-2 space-y-1.5 text-xs leading-snug">
+                <div className="text-violet-100">
+                  <AddressAbbr address={address} />
+                </div>
+                <div className="text-slate-500">
+                  <span className="text-slate-400">Network:</span> {chainId ?? '—'}
+                  {onWrongChain && (
+                    <>
+                      {' '}
+                      <span className="text-amber-200/90">
+                        — need {activeChain.name}{' '}
+                        <span className="font-mono">({activeChain.id})</span>
+                      </span>
+                    </>
+                  )}
+                </div>
+                {onWrongChain && chainId === ETHEREUM_SEPOLIA_CHAIN_ID && (
+                  <p className="text-xs leading-relaxed text-amber-100/90">
+                    You are on <span className="font-medium">Ethereum Sepolia</span> (L1 testnet).
+                    THORNado / Nado use{' '}
+                    <span className="font-medium">Ink Sepolia</span>, a different network (chain{' '}
+                    {activeChain.id}). Getting ETH from an Ethereum Sepolia faucet does not fund
+                    Ink Sepolia — switch here, then use an{' '}
+                    <span className="font-medium">Ink</span> testnet faucet if you still need gas.
+                  </p>
+                )}
+                {onWrongChain && (
+                  <button
+                    type="button"
+                    disabled={switchPending}
+                    onClick={() => switchChain({ chainId: activeChain.id })}
+                    className="rounded-lg border border-amber-400/40 bg-amber-400/10 px-2 py-1.5 text-xs font-medium text-amber-100"
+                  >
+                    {switchPending ? 'Switching…' : `Switch to ${activeChain.name}`}
+                  </button>
+                )}
+                {!session && (
+                  <button
+                    type="button"
+                    onClick={() => disconnect()}
+                    className="block text-xs text-slate-500 underline hover:text-slate-300"
+                  >
+                    Disconnect wallet
+                  </button>
+                )}
+              </div>
+            )}
+            {sessionLoading && (
+              <div className="mt-3 flex items-center gap-2 text-xs text-slate-400">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Loading session…
+              </div>
+            )}
+            {sessionError && (
+              <p className="mt-3 text-xs text-rose-300">Could not load session.</p>
+            )}
+            {!sessionLoading && !session && isConnected && (
+              <p className="mt-3 text-xs text-slate-400">
+                No server session yet. Approve the sign-in prompt when prompted.
               </p>
             )}
-            {onWrongChain && (
-              <button
-                type="button"
-                disabled={switchPending}
-                onClick={() => switchChain({ chainId: activeChain.id })}
-                className="rounded-lg border border-amber-400/40 bg-amber-400/10 px-3 py-2 text-xs font-medium text-amber-100"
-              >
-                {switchPending ? 'Switching…' : `Switch to ${activeChain.name}`}
-              </button>
+            {signing && needsServerSession && (
+              <div className="mt-3 flex items-center gap-2 text-xs text-violet-200">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Signing in…
+              </div>
             )}
-            {!session && (
-              <button
-                type="button"
-                onClick={() => disconnect()}
-                className="block text-xs text-slate-500 underline hover:text-slate-300"
-              >
-                Disconnect wallet
-              </button>
+            {session && (
+              <div className="mt-2 space-y-2 text-xs">
+                <div>
+                  <span className="text-slate-500">Signed in </span>
+                  <AddressAbbr address={session.address} className="text-violet-100" />
+                </div>
+                <button
+                  type="button"
+                  onClick={onSignOut}
+                  className="inline-flex items-center gap-1.5 rounded-md border border-white/10 bg-white/5 px-2.5 py-1.5 text-xs font-medium text-slate-200 transition hover:bg-white/10"
+                >
+                  <LogOut className="h-3.5 w-3.5" />
+                  Sign out
+                </button>
+                <p className="text-[11px] leading-relaxed text-slate-500">
+                  Ends session and disconnects wallet.
+                </p>
+              </div>
             )}
-          </div>
-        )}
-        {sessionLoading && (
-          <div className="mt-4 flex items-center gap-2 text-sm text-slate-400">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            Loading session…
-          </div>
-        )}
-        {sessionError && (
-          <p className="mt-4 text-sm text-rose-300">Could not load session.</p>
-        )}
-        {!sessionLoading && !session && isConnected && (
-          <p className="mt-4 text-sm text-slate-400">
-            No server session yet. Use the correct network above, then approve the sign-in
-            prompt.
-          </p>
-        )}
-        {signing && needsServerSession && (
-          <div className="mt-4 flex items-center gap-2 text-sm text-violet-200">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            Signing in to Thornado…
-          </div>
-        )}
-        {session && (
-          <div className="mt-4 space-y-2 font-mono text-sm">
-            <div>
-              <span className="text-slate-500">Signed in as </span>
-              <span className="text-violet-100">{session.address}</span>
-            </div>
-            <button
-              type="button"
-              onClick={onSignOut}
-              className="mt-3 inline-flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs font-medium text-slate-200 transition hover:bg-white/10"
-            >
-              <LogOut className="h-3.5 w-3.5" />
-              Sign out
-            </button>
-            <p className="max-w-md text-[11px] leading-relaxed text-slate-500">
-              Ends your Thornado session and disconnects your wallet.
-            </p>
-          </div>
-        )}
-      </section>
+          </section>
 
-      {isConnected && !onWrongChain && walletClient && (
-        <section className="rounded-xl border border-white/10 bg-[rgba(12,14,32,0.72)] p-5 backdrop-blur-md">
-          <h2 className="text-xs font-bold uppercase tracking-[0.2em] text-slate-500">
-            Nado linked signer
-          </h2>
-          <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
-            After setup, Nado orders can be signed by a session key in this browser (no
-            wallet popup per order). You sign once to derive the key and once to register
-            it on the engine. The key is stored in{' '}
-            <span className="text-slate-400">localStorage</span> for this wallet + chain.
-          </p>
+          {isConnected && !onWrongChain && walletClient && (
+            <section className={asideCard}>
+              <h2 className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">
+                Nado linked signer
+              </h2>
+              <p className="mt-1.5 text-xs leading-snug text-slate-500">
+                Session key for Nado orders ·{' '}
+                <span className="text-slate-400">localStorage</span>
+              </p>
           {nadoEngineCheckLoading && (
-            <p className="mt-2 flex items-center gap-2 text-[11px] text-slate-400">
+            <p className="mt-2 flex items-center gap-2 text-xs text-slate-400">
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
               Checking subaccount on Nado engine…
             </p>
           )}
           {nadoDepositRequiredForLinkedSigner && (
-            <div className="mt-3 rounded-lg border border-amber-400/30 bg-amber-950/30 px-3 py-2 text-[11px] leading-relaxed text-amber-100/95">
+            <div className="mt-2 rounded-md border border-amber-400/30 bg-amber-950/30 px-2.5 py-2 text-xs leading-relaxed text-amber-100/95">
               <span className="font-semibold text-amber-50">
                 Deposit on Nado before linked signer.
               </span>{' '}
@@ -362,49 +468,73 @@ export default function Account() {
               to THORNado), this button unlocks.
             </div>
           )}
-          <div className="mt-3 space-y-1 font-mono text-[11px] text-slate-400">
+          <div className="mt-2 space-y-1.5 text-xs text-slate-400">
             {engineSignerLoading ? (
               <div className="flex items-center gap-2">
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
                 Checking engine…
               </div>
+            ) : engineSignerMatchesLocal && derivedSignerAddress ? (
+              <>
+                <div className="flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
+                  <span className="shrink-0 text-slate-500">Linked signer:</span>
+                  <AddressAbbr address={derivedSignerAddress} />
+                </div>
+                <p className="text-[11px] leading-snug text-emerald-300/90">
+                  Fast signing on — terminal orders without per-tx wallet popups.
+                </p>
+              </>
             ) : (
               <>
-                <div>
-                  Engine linked signer:{' '}
-                  {engineSigner && engineSigner !==
-                  '0x0000000000000000000000000000000000000000'
-                    ? engineSigner
-                    : '—'}
+                <div className="flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
+                  <span className="shrink-0 text-slate-500">Engine:</span>
+                  {engineSigner && engineSigner !== NADO_ZERO_SIGNER ? (
+                    <AddressAbbr address={engineSigner} />
+                  ) : (
+                    <span>—</span>
+                  )}
                 </div>
-                <div>
-                  Local session key:{' '}
-                  {derivedSignerAddress ? derivedSignerAddress : '—'}
+                <div className="flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
+                  <span className="shrink-0 text-slate-500">Local key:</span>
+                  {derivedSignerAddress ? (
+                    <AddressAbbr address={derivedSignerAddress} />
+                  ) : (
+                    <span>—</span>
+                  )}
                 </div>
-                {derivedSignerAddress && engineSignerMatchesLocal && (
-                  <p className="text-emerald-300/90">
-                    You&apos;re all set: fast signing is on. The Trading terminal can place
-                    Nado orders without asking your wallet for every signature.
-                  </p>
-                )}
                 {derivedSignerAddress &&
                   !engineSignerMatchesLocal &&
                   engineSigner &&
-                  engineSigner !==
-                    '0x0000000000000000000000000000000000000000' && (
-                    <p className="text-amber-200/90">
-                      Engine has a different linked signer — use &quot;Forget local
-                      key&quot; or re-link after clearing on-chain state.
+                  engineSigner !== NADO_ZERO_SIGNER && (
+                    <p className="text-[11px] leading-snug text-amber-200/90">
+                      Engine linked signer differs from this browser&apos;s key —
+                      use &quot;Forget local key&quot; or set up linking again.
+                    </p>
+                  )}
+                {derivedSignerAddress &&
+                  (!engineSigner || engineSigner === NADO_ZERO_SIGNER) && (
+                    <p className="text-[11px] leading-snug text-amber-200/90">
+                      This browser has a session key, but the engine has no linked
+                      signer yet. Use &quot;Set up linked signer&quot; to register it.
+                    </p>
+                  )}
+                {engineSigner &&
+                  engineSigner !== NADO_ZERO_SIGNER &&
+                  !derivedSignerAddress && (
+                    <p className="text-[11px] leading-snug text-amber-200/90">
+                      The engine lists a linked signer, but this browser has no
+                      saved key. Set up here or use a device that already has the
+                      key.
                     </p>
                   )}
               </>
             )}
           </div>
           {linkError && (
-            <div className="mt-3 space-y-2">
-              <p className="text-xs text-rose-300">{linkError}</p>
+            <div className="mt-2 space-y-1.5">
+              <p className="text-xs leading-snug text-rose-300">{linkError}</p>
               {isNadoDepositPrerequisiteError(linkError) && (
-                <div className="rounded-lg border border-amber-400/25 bg-amber-950/25 px-3 py-2 text-[11px] leading-relaxed text-amber-100/95">
+                <div className="rounded-md border border-amber-400/25 bg-amber-950/25 px-2.5 py-2 text-xs leading-relaxed text-amber-100/95">
                   <span className="font-semibold text-amber-50">
                     Deposit required on Nado first.
                   </span>{' '}
@@ -416,7 +546,7 @@ export default function Account() {
               )}
             </div>
           )}
-          <div className="mt-4 flex flex-wrap gap-2">
+          <div className="mt-3 flex flex-wrap gap-2">
             <button
               type="button"
               disabled={
@@ -426,7 +556,7 @@ export default function Account() {
                 nadoEngineCheckLoading
               }
               onClick={() => void linkSigner()}
-              className="inline-flex items-center gap-2 rounded-lg bg-violet-600/90 px-3 py-2 text-xs font-medium text-white transition hover:bg-violet-500 disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 rounded-md bg-violet-600/90 px-3 py-2 text-xs font-medium text-white transition hover:bg-violet-500 disabled:opacity-50"
             >
               {linking ? (
                 <>
@@ -443,53 +573,15 @@ export default function Account() {
               type="button"
               disabled={linking || !derivedSignerAddress}
               onClick={forgetLocalLinkedSigner}
-              className="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-xs font-medium text-slate-300 transition hover:bg-white/10 disabled:opacity-40"
+              className="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-xs font-medium text-slate-300 transition hover:bg-white/10 disabled:opacity-40"
             >
               Forget local key
             </button>
           </div>
-        </section>
-      )}
-
-      {signError && isConnected && !onWrongChain && (
-        <section className="rounded-xl border border-rose-400/30 bg-rose-950/20 p-5">
-          <p className="text-sm text-rose-200">{signError}</p>
-          <button
-            type="button"
-            disabled={signing}
-            onClick={() => {
-              siweAttemptKey.current = ''
-              void runSiwe()
-            }}
-            className="mt-3 rounded-lg bg-white/10 px-4 py-2 text-sm font-medium text-white hover:bg-white/15 disabled:opacity-50"
-          >
-            {signing ? '…' : 'Retry sign-in'}
-          </button>
-        </section>
-      )}
-
-      {canShowNadoSummarySection && (
-        <>
-          <NadoPortfolioView
-            walletAddress={address}
-            chainEnv={chainEnv}
-            nadoAppOrigin={nadoAppOrigin}
-            portfolio={portfolio}
-            getNadoClient={getNadoClient}
-            onInvalidatePortfolio={invalidatePortfolio}
-            depositWithdrawEnabled={canQueryNadoEngine}
-          />
-          {portfolio.hasAnyError && !portfolio.isLoadingAny && (
-            <section className="rounded-xl border border-amber-400/30 bg-amber-950/20 p-4">
-              <p className="text-sm text-amber-100">
-                Some portfolio sections are partially unavailable with the current Nado API
-                methods in this SDK version. Core account access and linked signer flow stay
-                operational.
-              </p>
             </section>
           )}
-        </>
-      )}
+        </aside>
+      </div>
     </div>
   )
 }

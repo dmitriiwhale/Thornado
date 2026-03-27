@@ -320,49 +320,6 @@ export function adaptPositions(payload) {
 }
 
 /**
- * Engine isolated positions shape (from getIsolatedPositions):
- * { subaccount, healths, baseBalance, quoteBalance }
- *
- * We map it into the same table row shape expected by the UI:
- * { market, side, size, entry, mark, pnl, notional }
- */
-export function adaptIsolatedPositions(payload, symbolsByProductId) {
-  return unwrapArray(payload).map((row, idx) => {
-    const base = row?.baseBalance ?? row?.base_balance ?? {}
-    const productId = base?.productId ?? base?.product_id ?? null
-
-    const mappedSymbol =
-      productId != null && symbolsByProductId
-        ? symbolsByProductId[String(productId)]
-        : null
-
-    const oraclePx = toNumber(base?.oraclePrice)
-    const rawSizeX18 = fromX18(base?.amount) ?? toNumber(base?.amount)
-    const hasSize = rawSizeX18 != null
-    const side = hasSize ? (rawSizeX18 >= 0 ? 'LONG' : 'SHORT') : '—'
-    const size = hasSize ? Math.abs(rawSizeX18) : null
-
-    const notional =
-      oraclePx != null && size != null ? oraclePx * size : fromX18(base?.vQuoteBalance)
-
-    const tokenAddr = base?.tokenAddr ?? base?.token ?? null
-
-    return {
-      id: `isol-${productId ?? idx}-${idx}`,
-      market: mappedSymbol ?? (productId != null ? `Perp #${productId}` : `Perp ${idx + 1}`),
-      productId,
-      tokenAddr: tokenAddr ? String(tokenAddr) : null,
-      side,
-      size,
-      entry: null,
-      mark: null,
-      pnl: null,
-      notional,
-    }
-  })
-}
-
-/**
  * Cross perp positions are represented in `getSubaccountSummary().balances` as `BalanceWithProduct`
  * rows with:
  * - type = PERP

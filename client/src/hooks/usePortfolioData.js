@@ -2,7 +2,6 @@ import { useMemo } from 'react'
 import { useQueries, useQuery } from '@tanstack/react-query'
 import {
   adaptBalances,
-  adaptIsolatedPositions,
   adaptPerpPositionsFromBalances,
   adaptOrders,
   adaptPnl,
@@ -196,20 +195,6 @@ export function usePortfolioData({
     return map
   }, [symbolsQuery.data])
 
-  const isolatedPositionsQuery = useQuery({
-    queryKey: ['portfolio-isolated-positions', ownerAddress, chainEnv, subaccountName],
-    enabled: Boolean(enabled && ownerAddress),
-    queryFn: async () => {
-      const client = getNadoClient?.()
-      if (!client) throw new Error('Nado client unavailable')
-      // In this SDK version we only have isolated positions (cross positions endpoint is not exposed).
-      return client.subaccount.getIsolatedPositions({
-        subaccountOwner: ownerAddress,
-        subaccountName,
-      })
-    },
-  })
-
   const summary = useMemo(() => adaptSummary(summaryQuery.data), [summaryQuery.data])
   const balances = useMemo(
     () =>
@@ -224,15 +209,6 @@ export function usePortfolioData({
     [positionsQuery.data],
   )
 
-  const isolatedPositions = useMemo(
-    () =>
-      adaptIsolatedPositions(
-        isolatedPositionsQuery.data,
-        symbolsByProductId,
-      ),
-    [isolatedPositionsQuery.data, symbolsByProductId],
-  )
-
   const perpPositionsFromBalances = useMemo(
     () =>
       adaptPerpPositionsFromBalances(
@@ -243,11 +219,9 @@ export function usePortfolioData({
   )
 
   const positions = useMemo(() => {
-    // Prefer standard positions when available; otherwise fall back to isolated positions.
     if (crossPositions?.length) return crossPositions
-    if (isolatedPositions?.length) return isolatedPositions
     return perpPositionsFromBalances
-  }, [crossPositions, isolatedPositions, perpPositionsFromBalances])
+  }, [crossPositions, perpPositionsFromBalances])
   const orders = useMemo(() => adaptOrders(ordersQuery.data), [ordersQuery.data])
   const trades = useMemo(
     () => adaptTrades(tradesQuery.data, symbolsByProductId),
@@ -271,7 +245,6 @@ export function usePortfolioData({
     summaryQuery,
     symbolsQuery,
     positionsQuery,
-    isolatedPositionsQuery,
     ordersQuery,
     tradesQuery,
     pnlQuery,
@@ -293,7 +266,6 @@ export function usePortfolioData({
       summary: summaryQuery,
       symbols: symbolsQuery,
       positions: positionsQuery,
-      isolatedPositions: isolatedPositionsQuery,
       orders: ordersQuery,
       trades: tradesQuery,
       pnl: pnlQuery,

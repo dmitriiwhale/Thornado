@@ -263,8 +263,7 @@ function OverviewTab({
   const loading = portfolio.queries.summary.isLoading
   const noSubaccount = portfolio.queries.summary.isSuccess && portfolio.summary?.exists === false
   const ordersError = portfolio.queries.orders?.error
-  const positionsError =
-    portfolio.queries.positions?.error ?? portfolio.queries.isolatedPositions?.error
+  const positionsError = portfolio.queries.positions?.error
   const balancesRanked = useMemo(() => {
     const list = portfolio.balances ?? []
     const isActive = (b) => {
@@ -350,12 +349,6 @@ function OverviewTab({
             />
           </div>
         )}
-        <a
-          href="#isolated"
-          className="mt-3 inline-flex items-center gap-1 text-xs text-violet-300/90 hover:text-violet-200"
-        >
-          Isolated positions ↓
-        </a>
       </section>
 
       {/* Collateral snapshot */}
@@ -469,10 +462,7 @@ function OverviewTab({
                 fmt.currency(p.notional),
               ],
             }))}
-            loading={
-              portfolio.queries.positions.isLoading ||
-              portfolio.queries.isolatedPositions?.isLoading
-            }
+            loading={portfolio.queries.positions.isLoading}
             maxBodyHeightPx={320}
           />
         )}
@@ -490,11 +480,6 @@ function OverviewTab({
             maxBodyHeightPx={320}
           />
         )}
-      </section>
-
-      <section id="isolated" className={`${C.card} scroll-mt-4 p-4`}>
-        <h3 className={C.label}>Isolated</h3>
-        <p className={`${C.muted} mt-2 text-xs`}>No isolated positions (placeholder).</p>
       </section>
     </div>
   )
