@@ -587,59 +587,143 @@ function MarginManagerTab({ portfolio, fmt }) {
   )
 }
 
+function historyTradeStats(trades) {
+  const list = trades ?? []
+  let fees = 0
+  let realized = 0
+  for (const t of list) {
+    const f = typeof t.fee === 'number' && Number.isFinite(t.fee) ? t.fee : 0
+    const p =
+      typeof t.realizedPnl === 'number' && Number.isFinite(t.realizedPnl)
+        ? t.realizedPnl
+        : 0
+    fees += f
+    realized += p
+  }
+  return { count: list.length, fees, realized }
+}
+
+function pnlCellClass(value) {
+  if (value == null || Number.isNaN(Number(value))) return 'text-slate-400'
+  const n = Number(value)
+  if (n > 0) return 'text-emerald-300/95'
+  if (n < 0) return 'text-rose-300/95'
+  return 'text-slate-400'
+}
+
 function HistoryTab({ portfolio, fmt }) {
   const q = portfolio.queries.trades
+  const trades = portfolio.trades ?? []
+  const stats = useMemo(() => historyTradeStats(trades), [trades])
+
   return (
     <section className={`${C.card} overflow-hidden p-0`}>
       <div className="border-b border-white/[0.08] px-3 py-2">
-        <h3 className={C.label}>Trade history</h3>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+          <h3 className={C.label}>Trade history</h3>
+          {!q.isLoading && !q.error && stats.count > 0 && (
+            <div className="flex flex-wrap gap-2">
+              <div className="rounded-lg border border-white/[0.08] bg-black/20 px-2.5 py-1.5 text-right">
+                <div className="text-[9px] font-semibold uppercase tracking-wider text-slate-500">
+                  Fills (loaded)
+                </div>
+                <div className="font-mono text-sm tabular-nums text-slate-100">{stats.count}</div>
+              </div>
+              <div className="rounded-lg border border-white/[0.08] bg-black/20 px-2.5 py-1.5 text-right">
+                <div className="text-[9px] font-semibold uppercase tracking-wider text-slate-500">
+                  Fees Σ
+                </div>
+                <div className="font-mono text-sm tabular-nums text-slate-200">
+                  {fmt.currency(stats.fees)}
+                </div>
+              </div>
+              <div className="rounded-lg border border-white/[0.08] bg-black/20 px-2.5 py-1.5 text-right">
+                <div className="text-[9px] font-semibold uppercase tracking-wider text-slate-500">
+                  Realized Σ
+                </div>
+                <div
+                  className={`font-mono text-sm font-semibold tabular-nums ${pnlCellClass(stats.realized)}`}
+                >
+                  {fmt.signedCurrency(stats.realized)}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[640px] text-left text-xs">
-          <thead>
-            <tr className="border-b border-white/[0.08] text-slate-500">
-              <th className="px-2.5 py-2 font-medium">Time</th>
-              <th className="px-2.5 py-2 font-medium">Market</th>
-              <th className="px-2.5 py-2 font-medium">Side</th>
-              <th className="px-2.5 py-2 font-medium">Price</th>
-              <th className="px-2.5 py-2 font-medium">Size</th>
-              <th className="px-2.5 py-2 font-medium">Fee</th>
-              <th className="px-2.5 py-2 font-medium">PnL</th>
+      <div
+        className="overflow-x-auto overflow-y-auto"
+        style={{ maxHeight: 381 }}
+      >
+        <table className="w-full min-w-[630px] text-left text-[14px] leading-snug">
+          <thead className="sticky top-0 z-10 border-b border-white/[0.08] bg-[rgba(12,14,32,0.97)] shadow-[0_1px_0_rgba(255,255,255,0.06)] backdrop-blur-sm">
+            <tr className="text-slate-500">
+              <th className="whitespace-nowrap px-2.5 py-2.5 text-[13px] font-medium">Time</th>
+              <th className="whitespace-nowrap px-2.5 py-2.5 text-[13px] font-medium">Market</th>
+              <th className="whitespace-nowrap px-2.5 py-2.5 text-[13px] font-medium">Side</th>
+              <th className="whitespace-nowrap px-2.5 py-2.5 text-[13px] font-medium">Price</th>
+              <th className="whitespace-nowrap px-2.5 py-2.5 text-right text-[13px] font-medium">
+                Size
+              </th>
+              <th className="whitespace-nowrap px-2.5 py-2.5 text-right text-[13px] font-medium">
+                Fee
+              </th>
+              <th className="whitespace-nowrap px-2.5 py-2.5 text-right text-[13px] font-medium">
+                PnL
+              </th>
             </tr>
           </thead>
-          <tbody className="text-slate-300">
+          <tbody>
             {q.isLoading && (
               <tr>
-                <td colSpan={7} className="px-3 py-6 text-center text-slate-500">
+                <td colSpan={7} className="px-3 py-5 text-center text-[14px] text-slate-500">
                   Loading…
                 </td>
               </tr>
             )}
             {!q.isLoading && q.error && (
               <tr>
-                <td colSpan={7} className="px-3 py-6 text-center text-slate-500">
-                  Unavailable for this SDK response.
+                <td colSpan={7} className="px-3 py-7 text-center text-[14px] text-slate-500">
+                  Couldn&apos;t load fills with this SDK response.
                 </td>
               </tr>
             )}
             {!q.isLoading &&
               !q.error &&
-              portfolio.trades.map((t) => (
+              trades.map((t) => (
                 <tr key={t.id} className="border-t border-white/[0.06]">
-                  <td className="px-2.5 py-1.5 font-mono text-[11px]">{fmt.datetime(t.time)}</td>
-                  <td className="px-2.5 py-1.5 font-mono text-[11px] text-violet-200/90">
+                  <td className="whitespace-nowrap px-2.5 py-2.5 font-mono text-[13px] text-slate-400">
+                    {fmt.datetime(t.time)}
+                  </td>
+                  <td className="max-w-[10rem] truncate px-2.5 py-2.5 font-medium text-slate-200">
                     {t.market}
                   </td>
-                  <td className={`px-2.5 py-1.5 ${tradeSideClass(t.side)}`}>{t.side}</td>
-                  <td className="px-2.5 py-1.5 font-mono">{fmt.number(t.price)}</td>
-                  <td className="px-2.5 py-1.5 font-mono">{fmt.number(t.size)}</td>
-                  <td className="px-2.5 py-1.5 font-mono">{fmt.currency(t.fee)}</td>
-                  <td className="px-2.5 py-1.5 font-mono">{fmt.signedCurrency(t.realizedPnl)}</td>
+                  <td className="px-2.5 py-2.5">
+                    <span
+                      className={`inline-block rounded-md px-2 py-0.5 text-[11px] font-semibold ${tradeSideClass(t.side)}`}
+                    >
+                      {t.side}
+                    </span>
+                  </td>
+                  <td className="whitespace-nowrap px-2.5 py-2.5 font-mono text-[14px] tabular-nums text-slate-300">
+                    {fmt.number(t.price)}
+                  </td>
+                  <td className="whitespace-nowrap px-2.5 py-2.5 text-right font-mono text-[14px] tabular-nums text-slate-300">
+                    {fmt.number(t.size)}
+                  </td>
+                  <td className="whitespace-nowrap px-2.5 py-2.5 text-right font-mono text-[14px] tabular-nums text-slate-400">
+                    {fmt.currency(t.fee)}
+                  </td>
+                  <td
+                    className={`whitespace-nowrap px-2.5 py-2.5 text-right font-mono text-[15px] font-semibold tabular-nums tracking-tight ${pnlCellClass(t.realizedPnl)}`}
+                  >
+                    {fmt.signedCurrency(t.realizedPnl)}
+                  </td>
                 </tr>
               ))}
-            {!q.isLoading && !q.error && portfolio.trades.length === 0 && (
+            {!q.isLoading && !q.error && trades.length === 0 && (
               <tr>
-                <td colSpan={7} className="px-3 py-8 text-center text-slate-500">
+                <td colSpan={7} className="px-3 py-7 text-center text-[14px] text-slate-500">
                   No trades yet.
                 </td>
               </tr>
@@ -647,6 +731,12 @@ function HistoryTab({ portfolio, fmt }) {
           </tbody>
         </table>
       </div>
+      {!q.isLoading && !q.error && trades.length > 0 && (
+        <div className="border-t border-white/[0.08] px-3 py-2 text-[11px] leading-relaxed text-slate-500">
+          Totals above are for the fills listed in this table (same window as the API). Older
+          activity may not appear.
+        </div>
+      )}
     </section>
   )
 }

@@ -141,13 +141,25 @@ export default function PnlCurveChart({ series, isLoading }) {
   const [tipClient, setTipClient] = useState(null)
 
   const resize = useCallback(() => {
-    if (containerRef.current) {
-      setWidth(Math.max(220, containerRef.current.getBoundingClientRect().width))
-    }
+    const el = containerRef.current
+    if (!el) return
+    const w = el.getBoundingClientRect().width
+    // Skip until laid out: using min width (220) while the real width is e.g. 800px makes
+    // viewBox aspect wrong with width="100%" height auto → huge rendered height after reload.
+    if (!Number.isFinite(w) || w < 8) return
+    setWidth(Math.max(220, w))
   }, [])
 
   useLayoutEffect(() => {
     resize()
+    const id = requestAnimationFrame(() => resize())
+    const t1 = window.setTimeout(() => resize(), 50)
+    const t2 = window.setTimeout(() => resize(), 200)
+    return () => {
+      cancelAnimationFrame(id)
+      window.clearTimeout(t1)
+      window.clearTimeout(t2)
+    }
   }, [resize])
 
   useEffect(() => {
@@ -295,16 +307,16 @@ export default function PnlCurveChart({ series, isLoading }) {
   return (
     <div ref={containerRef} className="w-full min-w-0">
       {tooltipPortal}
-
-      <svg
-        ref={svgRef}
-        viewBox={`0 0 ${Math.max(1, width)} ${CHART_H}`}
-        width="100%"
-        className="block h-auto w-full max-w-full"
-        preserveAspectRatio="xMidYMid meet"
-        role="img"
-        aria-label="Cumulative realized profit and loss from recent fills; hover for details"
-      >
+      {/* Fixed plot height + SVG fills box — avoids h-auto viewBox aspect bugs on cold load */}
+      <div className="relative w-full overflow-hidden" style={{ height: CHART_H }}>
+        <svg
+          ref={svgRef}
+          viewBox={`0 0 ${Math.max(1, width)} ${CHART_H}`}
+          className="absolute inset-0 block h-full w-full"
+          preserveAspectRatio="xMidYMid meet"
+          role="img"
+          aria-label="Cumulative realized profit and loss from recent fills; hover for details"
+        >
         <defs>
           <linearGradient id={fillGradId} x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stopColor={fillTop} />
@@ -442,7 +454,8 @@ export default function PnlCurveChart({ series, isLoading }) {
           onMouseMove={handleOverlayMove}
           onMouseLeave={handleOverlayLeave}
         />
-      </svg>
+        </svg>
+      </div>
     </div>
   )
 }
