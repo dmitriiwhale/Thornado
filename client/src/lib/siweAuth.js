@@ -41,10 +41,18 @@ export async function signInWithThornado(address, opts) {
       message: msg,
     })
   } else {
+    // Persisted wagmi state may hydrate `connector` as `{ id, name, type, uid }` without
+    // methods until reconnect finishes — passing it breaks getConnectorClient (getAccounts).
+    const fullConnector =
+      connector &&
+      typeof connector.getAccounts === 'function' &&
+      typeof connector.getChainId === 'function'
+        ? connector
+        : undefined
     signature = await signMessageAsync({
       message: msg,
       account: checksummed,
-      ...(connector ? { connector } : {}),
+      ...(fullConnector ? { connector: fullConnector } : {}),
     })
   }
 

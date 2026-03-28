@@ -1,0 +1,52 @@
+# Postgres + gateway. Copy .env.example to .env and adjust if needed.
+#
+# Only database:
+#   docker compose up postgres -d
+# Then run gateway on the host with DATABASE_URL pointing at localhost (see .env.example).
+#
+# Full stack (DB + gateway in Docker):
+#   docker compose up -d
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: thornado-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-thornado}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-thornado}
+      POSTGRES_DB: ${POSTGRES_DB:-thornado}
+    # Host port defaults to 5433 so a local Postgres on 5432 does not block compose.
+    ports:
+      - "${POSTGRES_PORT:-5433}:5432"
+    volumes:
+      - thornado_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      # Uses env vars from the Postgres image (same as POSTGRES_* above).
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  gateway:
+    build:
+      context: ./gateway
+      dockerfile: Dockerfile
+    container_name: thornado-gateway
+    restart: unless-stopped
+    ports:
+      - "${GATEWAY_PORT:-3001}:3001"
+    environment:
+      PORT: "3001"
+      # Hostname `postgres` is the Docker service name (same Compose network).
+      DATABASE_URL: postgres://${POSTGRES_USER:-thornado}:${POSTGRES_PASSWORD:-thornado}@postgres:5432/${POSTGRES_DB:-thornado}?sslmode=disable
+      JWT_SECRET: ${JWT_SECRET:-dev-only-change-me}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}
+      SIWE_DOMAIN: ${SIWE_DOMAIN:-localhost:5173}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  thornado_pgdata:

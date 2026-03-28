@@ -10,6 +10,7 @@ import {
   buildCumulativeRealizedPnlSeries,
 } from '../../lib/portfolioAdapters.js'
 import PnlCurveChart from './PnlCurveChart.jsx'
+import PortfolioAvatar from './PortfolioAvatar.jsx'
 import {
   fetchRemoteTokenIcon,
   hasRemoteTokenIconLookup,
@@ -199,9 +200,7 @@ export default function NadoPortfolioView({
       <div className={`${C.card} p-3 sm:p-4`}>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex min-w-0 items-center gap-2.5">
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-violet-500/20 text-[10px] font-bold text-violet-200 ring-1 ring-violet-400/30">
-              {walletAddress?.slice(2, 4)?.toUpperCase() ?? '?'}
-            </div>
+            <PortfolioAvatar walletAddress={walletAddress} />
             <div className="min-w-0">
               <div className="truncate text-sm font-medium text-white">Portfolio</div>
               <div className={`${C.muted} truncate text-xs`}>

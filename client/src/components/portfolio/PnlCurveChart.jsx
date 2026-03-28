@@ -13,6 +13,8 @@ import { fmt, tradeSideClass } from '../../lib/portfolioAdapters.js'
 /** Plot height in SVG user units; width follows container (ResizeObserver). */
 const CHART_H = 168
 const PAD = { t: 12, r: 14, b: 30, l: 54 }
+/** Smallest width for which plot area is non-degenerate. */
+const MIN_LAYOUT_W = PAD.l + PAD.r + 8
 /** Estimated tooltip box (width fixed; height conservative for clamping). */
 const TIP = { w: 216, h: 168, gap: 12 }
 
@@ -136,42 +138,63 @@ export default function PnlCurveChart({ series, isLoading }) {
 
   const containerRef = useRef(null)
   const svgRef = useRef(null)
-  const [width, setWidth] = useState(360)
+  /** Must match rendered CSS width or `meet` letterboxes (narrow curve after cold load). */
+  const [width, setWidth] = useState(0)
   const [hoverIdx, setHoverIdx] = useState(null)
   const [tipClient, setTipClient] = useState(null)
 
-  const resize = useCallback(() => {
+  const measureWidth = useCallback(() => {
     const el = containerRef.current
     if (!el) return
-    const w = el.getBoundingClientRect().width
-    // Skip until laid out: using min width (220) while the real width is e.g. 800px makes
-    // viewBox aspect wrong with width="100%" height auto → huge rendered height after reload.
-    if (!Number.isFinite(w) || w < 8) return
-    setWidth(Math.max(220, w))
+    const w =
+      typeof el.getBoundingClientRect === 'function'
+        ? el.getBoundingClientRect().width
+        : 0
+    const cw = el.clientWidth
+    const next = Math.max(
+      Number.isFinite(w) ? w : 0,
+      Number.isFinite(cw) ? cw : 0,
+    )
+    if (next < 4) return
+    const rounded = Math.round(next * 100) / 100
+    setWidth((prev) => (Math.abs(prev - rounded) < 0.5 ? prev : rounded))
   }, [])
 
+  const resize = useCallback(() => {
+    requestAnimationFrame(() => measureWidth())
+  }, [measureWidth])
+
   useLayoutEffect(() => {
-    resize()
-    const id = requestAnimationFrame(() => resize())
-    const t1 = window.setTimeout(() => resize(), 50)
-    const t2 = window.setTimeout(() => resize(), 200)
+    measureWidth()
+    const id = requestAnimationFrame(() => measureWidth())
+    const t1 = window.setTimeout(() => measureWidth(), 0)
+    const t2 = window.setTimeout(() => measureWidth(), 50)
+    const t3 = window.setTimeout(() => measureWidth(), 200)
     return () => {
       cancelAnimationFrame(id)
       window.clearTimeout(t1)
       window.clearTimeout(t2)
+      window.clearTimeout(t3)
     }
-  }, [resize])
+  }, [measureWidth, isLoading, series?.length])
 
   useEffect(() => {
     const el = containerRef.current
     if (!el) return
-    const ro = new ResizeObserver(resize)
-    ro.observe(el)
+    const ro = new ResizeObserver(() => resize())
+    ro.observe(el, { box: 'border-box' })
     return () => ro.disconnect()
+  }, [resize])
+
+  useEffect(() => {
+    const onWin = () => resize()
+    window.addEventListener('resize', onWin)
+    return () => window.removeEventListener('resize', onWin)
   }, [resize])
 
   const geom = useMemo(() => {
     if (!series?.length) return null
+    if (width < MIN_LAYOUT_W) return null
     const n = series.length
     const vs = series.map((p) => p.cumulative)
     let vmin = Math.min(...vs, 0)
@@ -294,6 +317,20 @@ export default function PnlCurveChart({ series, isLoading }) {
   }
 
   if (!geom) {
+    if (series?.length && width < MIN_LAYOUT_W) {
+      return (
+        <div
+          ref={containerRef}
+          className="w-full min-w-0"
+          aria-hidden
+        >
+          <div
+            className="rounded-lg bg-gradient-to-b from-white/[0.04] to-transparent"
+            style={{ minHeight: CHART_H }}
+          />
+        </div>
+      )
+    }
     return (
       <div
         className="flex w-full min-w-0 items-center justify-center rounded-lg bg-gradient-to-b from-white/[0.03] to-transparent px-4 text-center text-xs leading-relaxed text-slate-500"

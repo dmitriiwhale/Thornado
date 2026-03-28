@@ -134,6 +134,7 @@ export default function Account() {
     isConnected,
     chainId,
     status: connStatus,
+    isReconnecting,
   } = useConnection()
   const connectors = useConnectors()
   const { connect, isPending: connectPending } = useConnect()
@@ -188,6 +189,7 @@ export default function Account() {
 
   const runSiwe = useCallback(async () => {
     if (!address) return
+    if (isReconnecting) return
     setSignError(null)
     setSigning(true)
     try {
@@ -209,6 +211,7 @@ export default function Account() {
     }
   }, [
     address,
+    isReconnecting,
     onWrongChain,
     walletClient,
     signMessageAsync,
@@ -228,6 +231,7 @@ export default function Account() {
   useEffect(() => {
     if (sessionLoading) return
     if (!isConnected || !address) return
+    if (isReconnecting) return
     if (onWrongChain) return
     if (session && sessionMatchesWallet) return
     const key = `${address}-${chainId}`
@@ -240,6 +244,7 @@ export default function Account() {
     isConnected,
     address,
     chainId,
+    isReconnecting,
     onWrongChain,
     session,
     sessionMatchesWallet,

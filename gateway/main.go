@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"os"
@@ -265,6 +266,13 @@ func requireAuth(next echo.HandlerFunc) echo.HandlerFunc {
 func main() {
 	e := echo.New()
 
+	if err := initAvatarDB(context.Background()); err != nil {
+		e.Logger.Fatal("avatar database: ", err)
+	}
+	if avatarDB != nil {
+		defer avatarDB.Close()
+	}
+
 	allowOrigins := os.Getenv("CORS_ORIGINS")
 	if allowOrigins == "" {
 		allowOrigins = "http://localhost:5173,http://127.0.0.1:5173"
@@ -292,6 +300,11 @@ func main() {
 	auth.POST("/verify", postVerify)
 	auth.POST("/logout", postLogout)
 	auth.GET("/me", getMe, requireAuth)
+
+	profile := api.Group("/profile", requireAuth)
+	profile.GET("/avatar", getAvatar)
+	profile.PUT("/avatar", putAvatar)
+	profile.DELETE("/avatar", deleteAvatar)
 
 	port := os.Getenv("PORT")
 	if port == "" {
