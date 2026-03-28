@@ -22,22 +22,6 @@ function pickChecksumAddr(v) {
   }
 }
 
-/**
- * Prefer perp→spot base token from health map; then any valid on-chain addr on the row.
- * (Perp summary rows from the SDK usually have no token address on the product.)
- */
-export function resolvePositionTokenAddress(row, perpBaseTokenByProductId) {
-  const pid = row?.productId ?? row?.product_id ?? null
-  let fromMap = null
-  if (pid != null && perpBaseTokenByProductId && typeof perpBaseTokenByProductId === 'object') {
-    fromMap =
-      perpBaseTokenByProductId[String(pid)] ??
-      perpBaseTokenByProductId[Number(pid)] ??
-      null
-  }
-  return pickChecksumAddr(fromMap) ?? pickChecksumAddr(row?.tokenAddr ?? row?.token)
-}
-
 function toBigNumberish(v) {
   if (v == null) return null
   try {
@@ -216,11 +200,10 @@ function shortTokenAddr(addr) {
 
 /**
  * Engine rows omit `symbol`; use product type, id, and spot token address.
+ * For **spot**, do not use `row.symbol` from the summary — it often mirrors the ERC-20
+ * ticker (e.g. WBTC) while `getSymbols` carries Nado market names (e.g. kBTC / kBTC/USDT0).
  */
 function balanceLabelFromRow(row, idx) {
-  const sym = pick(row, ['symbol', 'asset', 'token', 'name'], null)
-  if (sym != null && String(sym).trim() !== '') return String(sym).trim()
-
   const id = row.productId ?? row.product_id
   const kind = engineBalanceKind(row)
 
@@ -229,6 +212,9 @@ function balanceLabelFromRow(row, idx) {
     if (addr) return `Spot ${shortTokenAddr(addr)}`
     return id != null ? `Spot #${id}` : `Spot ${idx + 1}`
   }
+
+  const sym = pick(row, ['symbol', 'asset', 'token', 'name'], null)
+  if (sym != null && String(sym).trim() !== '') return String(sym).trim()
   if (kind === 'perp') {
     return id != null ? `Perp #${id}` : `Perp ${idx + 1}`
   }
@@ -290,6 +276,17 @@ function deriveUnrealizedPnlFromRawBalances(rawBalances) {
   return Number.isFinite(n) ? n : null
 }
 
+/**
+ * Nado UI uses market names like kBTC for the wrapped BTC vault; engine / ERC-20 often say WBTC.
+ */
+function normalizeNadoSpotMarketSymbol(symbol) {
+  const s = String(symbol ?? '').trim()
+  if (!s) return s
+  if (/^WBTC$/i.test(s)) return 'kBTC'
+  if (/^WBTC\//i.test(s)) return s.replace(/^WBTC\//i, 'kBTC/')
+  return s
+}
+
 export function adaptBalances(
   payload,
   symbolsByProductId,
@@ -308,16 +305,24 @@ export function adaptBalances(
       if (mapped != null && String(mapped).trim() !== '') symbol = String(mapped).trim()
     }
 
-    // On-chain ERC-20 `symbol()` — matches wallets / block explorers (overrides short engine tickers).
+    // On-chain ERC-20 `symbol()` only if engine `getSymbols` did not return a label for this product.
+    // Otherwise wrapped tokens show contract tickers (e.g. WBTC) while Nado lists engine names (e.g. kBTC).
     if (
       kind === 'spot' &&
       tokenAddr &&
       erc20SymbolByLowerAddress &&
       typeof erc20SymbolByLowerAddress === 'object'
     ) {
-      const onChain = erc20SymbolByLowerAddress[String(tokenAddr).toLowerCase()]
-      if (onChain != null && String(onChain).trim() !== '') {
-        symbol = String(onChain).trim()
+      const engineSym =
+        productId != null && symbolsByProductId
+          ? symbolsByProductId[String(productId)]
+          : null
+      const hasEngineSymbol = engineSym != null && String(engineSym).trim() !== ''
+      if (!hasEngineSymbol) {
+        const onChain = erc20SymbolByLowerAddress[String(tokenAddr).toLowerCase()]
+        if (onChain != null && String(onChain).trim() !== '') {
+          symbol = String(onChain).trim()
+        }
       }
     }
 
@@ -329,9 +334,14 @@ export function adaptBalances(
     const usdValue = deriveBalanceUsd(row)
     const { weightInitial, weightMaintenance } = pickRiskWeights(row)
 
+    let displaySymbol = String(symbol)
+    if (kind === 'spot') {
+      displaySymbol = normalizeNadoSpotMarketSymbol(displaySymbol)
+    }
+
     return {
       id: `${kind ?? 'bal'}-${productId ?? idx}-${idx}`,
-      symbol: String(symbol),
+      symbol: displaySymbol,
       kind,
       productId,
       tokenAddr: tokenAddr ? String(tokenAddr) : null,
@@ -362,6 +372,21 @@ export function adaptSpotBalances(
     (row) => engineBalanceKind(row) === 'spot',
   )
   return adaptBalances(rows, symbolsByProductId, erc20SymbolByLowerAddress)
+}
+
+/** Ignore float dust when deciding if a perp row is an open position. */
+const NON_ZERO_POSITION_EPS = 1e-12
+
+/**
+ * True when `size` parses to a finite non-zero absolute value (open exposure).
+ * Used by the Positions table to hide flat / dust perp product rows.
+ */
+export function isNonZeroOpenPosition(row) {
+  const s = row?.size
+  if (s == null) return false
+  const n = toNumber(s)
+  if (n == null || !Number.isFinite(n)) return false
+  return Math.abs(n) > NON_ZERO_POSITION_EPS
 }
 
 export function adaptPositions(payload) {
@@ -398,7 +423,23 @@ export function adaptPositions(payload) {
  * - amount = base position amount (x18)
  * - oraclePrice on the product (already decimals, not x18)
  * - vQuoteBalance (x18) – we use it as a proxy for unrealized pnl/quote leg.
+ *
+ * Side follows engine convention: **negative** base `amount` (x18) = short, **positive** = long
+ * (same as `pickRiskWeights`). Prefer `BigNumber` sign over float `>= 0` to avoid mis-labeling.
  */
+function perpSideFromRawAmount(rawAmt) {
+  const b = toBigNumberish(rawAmt)
+  if (b != null && !b.isNaN()) {
+    if (b.isZero()) return '—'
+    return b.isNegative() ? 'SHORT' : 'LONG'
+  }
+  const amtX18 = fromX18(rawAmt)
+  const amtNum = amtX18 != null ? amtX18 : toNumber(rawAmt)
+  if (amtNum == null) return '—'
+  if (amtNum === 0) return '—'
+  return amtNum >= 0 ? 'LONG' : 'SHORT'
+}
+
 export function adaptPerpPositionsFromBalances(payload, symbolsByProductId) {
   const rows = unwrapArray(payload)
   return rows
@@ -415,8 +456,15 @@ export function adaptPerpPositionsFromBalances(payload, symbolsByProductId) {
       const amtNum = amtX18 != null ? amtX18 : toNumber(rawAmt)
 
       const oraclePx = toNumber(row.oraclePrice)
-      const size = amtNum != null ? Math.abs(amtNum) : null
-      const side = amtNum == null ? '—' : amtNum >= 0 ? 'LONG' : 'SHORT'
+      const bAmt = toBigNumberish(rawAmt)
+      let size = null
+      if (amtNum != null && Number.isFinite(amtNum)) {
+        size = Math.abs(amtNum)
+      } else if (bAmt != null && !bAmt.isNaN()) {
+        const a = bAmt.abs().dividedBy(X18)
+        size = a.isFinite() ? a.toNumber() : null
+      }
+      const side = perpSideFromRawAmount(rawAmt)
 
       const notional =
         oraclePx != null && size != null && Number.isFinite(oraclePx * size)
@@ -547,7 +595,7 @@ function adaptIndexerMatchRow(row, symbolsByProductId, idx) {
   const idBase = row.digest ?? row.submissionIndex
   return {
     id: `${String(idBase != null ? idBase : 'trade')}-${idx}`,
-    market: String(sym),
+    market: normalizePerpMarketLabel(String(sym)),
     side: sideFromMatchEvent(row),
     price,
     size,
@@ -572,7 +620,7 @@ export function adaptTrades(payload, symbolsByProductId = {}) {
     const time = pick(row, ['timestamp', 'time', 'createdAt'], null)
     return {
       id: String(pick(row, ['id', 'tradeId'], `${market}-${idx}`)),
-      market: String(market),
+      market: normalizePerpMarketLabel(String(market)),
       side,
       price,
       size,

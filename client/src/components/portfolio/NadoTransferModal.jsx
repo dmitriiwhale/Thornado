@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useState } from 'react'
 import { formatUnits } from 'viem'
 import { useChainId, useSwitchChain } from 'wagmi'
 import { ArrowLeftRight, X } from 'lucide-react'
@@ -14,40 +14,9 @@ import {
 } from '../../lib/nadoSpotCollateral.js'
 import { formatUserFacingError } from '../../lib/formatUserFacingError.js'
 import { useNadoNetwork } from '../../context/NadoNetworkContext.jsx'
-import { tokenLogoCandidates } from '../../lib/tokenLogoUrls.js'
+import Web3TokenIcon from './Web3TokenIcon.jsx'
 
 const rowSurface = 'bg-white/[0.04] ring-1 ring-inset ring-white/[0.08]'
-
-function TokenGlyph({ tokenAddress, symbol, chainId }) {
-  const candidates = useMemo(
-    () => tokenLogoCandidates({ tokenAddress, symbol, chainId }),
-    [tokenAddress, symbol, chainId],
-  )
-  const [idx, setIdx] = useState(0)
-  const label = String(symbol ?? '?')
-    .toUpperCase()
-    .replace(/[^A-Z0-9]/g, '')
-    .slice(0, 2)
-
-  if (!candidates.length || idx >= candidates.length) {
-    return (
-      <span className="flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full bg-white/10 text-[9px] font-bold text-slate-200 ring-1 ring-white/15">
-        {label || '?'}
-      </span>
-    )
-  }
-  return (
-    <img
-      src={candidates[idx]}
-      alt=""
-      width={18}
-      height={18}
-      className="h-[18px] w-[18px] shrink-0 rounded-full object-cover ring-1 ring-white/10"
-      onError={() => setIdx((i) => i + 1)}
-      loading="lazy"
-    />
-  )
-}
 
 const SUB_SUGGESTIONS = ['default', 'main', 'trading']
 
@@ -58,6 +27,7 @@ export default function NadoTransferModal({
   ownerAddress,
   subaccountName = 'default',
   onCompleted,
+  nadoAppOrigin = null,
 }) {
   const { activeChain } = useNadoNetwork()
   const chainId = useChainId()
@@ -75,7 +45,6 @@ export default function NadoTransferModal({
   const [quoteSymbol, setQuoteSymbol] = useState('USDT0')
   const [loadErr, setLoadErr] = useState(null)
 
-  const chainIdForLogos = activeChain?.id
   const wrongChain = chainId !== activeChain.id
 
   const reset = useCallback(() => {
@@ -337,10 +306,11 @@ export default function NadoTransferModal({
           <div className="relative grid grid-cols-2 gap-3">
             <div className={`flex flex-col gap-2 rounded-sm p-3 ${rowSurface}`}>
               <div className="flex items-center justify-center gap-2 text-xs text-slate-200">
-                <TokenGlyph
-                  tokenAddress={fromBal?.tokenAddr ?? quoteMeta?.tokenAddr}
+                <Web3TokenIcon
                   symbol={quoteSymbol}
-                  chainId={chainIdForLogos}
+                  seed={fromBal?.tokenAddr ?? quoteMeta?.tokenAddr ?? quoteSymbol}
+                  size={18}
+                  nadoAppOrigin={nadoAppOrigin}
                 />
                 <span className="truncate">From balance</span>
               </div>
@@ -360,10 +330,11 @@ export default function NadoTransferModal({
             </button>
             <div className={`flex flex-col gap-2 rounded-sm p-3 ${rowSurface}`}>
               <div className="flex items-center justify-center gap-2 text-xs text-slate-200">
-                <TokenGlyph
-                  tokenAddress={toBal?.tokenAddr ?? quoteMeta?.tokenAddr}
+                <Web3TokenIcon
                   symbol={quoteSymbol}
-                  chainId={chainIdForLogos}
+                  seed={toBal?.tokenAddr ?? quoteMeta?.tokenAddr ?? quoteSymbol}
+                  size={18}
+                  nadoAppOrigin={nadoAppOrigin}
                 />
                 <span className="truncate">To balance</span>
               </div>
@@ -404,10 +375,11 @@ export default function NadoTransferModal({
             </label>
             <div className="flex overflow-hidden rounded-md border border-white/[0.08] bg-black/25">
               <div className="flex min-w-[6rem] items-center gap-2 border-r border-white/[0.08] px-2 py-2">
-                <TokenGlyph
-                  tokenAddress={quoteMeta?.tokenAddr}
+                <Web3TokenIcon
                   symbol={quoteSymbol}
-                  chainId={chainIdForLogos}
+                  seed={quoteMeta?.tokenAddr ?? quoteSymbol}
+                  size={18}
+                  nadoAppOrigin={nadoAppOrigin}
                 />
                 <span className="text-sm text-slate-100">{quoteSymbol}</span>
               </div>

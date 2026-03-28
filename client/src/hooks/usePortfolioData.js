@@ -11,13 +11,10 @@ import {
   adaptSummary,
   adaptTrades,
   deriveUnifiedMargin,
+  isNonZeroOpenPosition,
   normalizePerpMarketLabel,
-  resolvePositionTokenAddress,
 } from '../lib/portfolioAdapters.js'
 import { fetchErc20Symbols } from '../lib/erc20TokenSymbols.js'
-import { buildPerpBaseTokenAddressMap } from '../lib/nadoPerpBaseToken.js'
-
-const EMPTY_PERP_TOKEN_MAP = Object.freeze({})
 
 function getInvoker(target, name) {
   const fn = target?.[name]
@@ -172,6 +169,9 @@ export function usePortfolioData({
     return uniq.sort((a, b) => Number(a) - Number(b))
   }, [rawBalances, tradeProductIds])
 
+  /** Large `productIds` arrays can yield incomplete `symbols` from the engine in one call. */
+  const SYMBOL_QUERY_CHUNK = 48
+
   const symbolsQuery = useQuery({
     queryKey: [
       'portfolio-symbols',
@@ -184,9 +184,18 @@ export function usePortfolioData({
     queryFn: async () => {
       const client = getNadoClient?.()
       if (!client) throw new Error('Nado client unavailable')
-      return client.context.engineClient.getSymbols({
-        productIds: productIdsForSymbols,
-      })
+      const ec = client.context.engineClient
+      const ids = productIdsForSymbols
+      const merged = { symbols: {} }
+      for (let i = 0; i < ids.length; i += SYMBOL_QUERY_CHUNK) {
+        const chunk = ids.slice(i, i + SYMBOL_QUERY_CHUNK)
+        const res = await ec.getSymbols({ productIds: chunk })
+        const obj = res?.symbols ?? {}
+        if (obj && typeof obj === 'object') {
+          Object.assign(merged.symbols, obj)
+        }
+      }
+      return merged
     },
   })
 
@@ -229,23 +238,6 @@ export function usePortfolioData({
     },
   })
 
-  const perpBaseTokensQuery = useQuery({
-    queryKey: ['portfolio-perp-base-tokens', chainEnv],
-    enabled: Boolean(enabled && ownerAddress),
-    queryFn: async () => {
-      try {
-        const client = getNadoClient?.()
-        const ec = client?.context?.engineClient
-        if (!ec) return {}
-        return await buildPerpBaseTokenAddressMap(ec)
-      } catch {
-        return {}
-      }
-    },
-  })
-
-  const perpBaseTokenByProductId = perpBaseTokensQuery.data ?? EMPTY_PERP_TOKEN_MAP
-
   const summary = useMemo(() => adaptSummary(summaryQuery.data), [summaryQuery.data])
   const balances = useMemo(
     () =>
@@ -281,17 +273,13 @@ export function usePortfolioData({
         ? crossPositions
         : perpPositionsFromBalances
     if (!base?.length) return base
-    const map = perpBaseTokenByProductId
-    return base.map((row) => ({
-      ...row,
-      market: normalizePerpMarketLabel(row.market),
-      tokenAddr: resolvePositionTokenAddress(row, map),
-    }))
-  }, [
-    crossPositions,
-    perpPositionsFromBalances,
-    perpBaseTokenByProductId,
-  ])
+    return base
+      .filter(isNonZeroOpenPosition)
+      .map((row) => ({
+        ...row,
+        market: normalizePerpMarketLabel(row.market),
+      }))
+  }, [crossPositions, perpPositionsFromBalances])
   const orders = useMemo(() => adaptOrders(ordersQuery.data), [ordersQuery.data])
   const trades = useMemo(
     () => adaptTrades(tradesQuery.data, symbolsByProductId),
@@ -336,7 +324,6 @@ export function usePortfolioData({
       summary: summaryQuery,
       symbols: symbolsQuery,
       spotTokenSymbols: spotTokenSymbolsQuery,
-      perpBaseTokens: perpBaseTokensQuery,
       positions: positionsQuery,
       orders: ordersQuery,
       trades: tradesQuery,

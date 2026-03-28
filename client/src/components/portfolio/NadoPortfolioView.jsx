@@ -1,8 +1,8 @@
 import React, { useMemo, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
-import { isAddress } from 'viem'
+import { Search } from 'lucide-react'
 import NadoDepositWithdrawModal from './NadoDepositWithdrawModal.jsx'
 import NadoTransferModal from './NadoTransferModal.jsx'
+import MarketCommandCenterModal from './MarketCommandCenterModal.jsx'
 import { CHAIN_ENV_TO_CHAIN } from '@nadohq/shared'
 import {
   fmt,
@@ -11,11 +11,7 @@ import {
 } from '../../lib/portfolioAdapters.js'
 import PnlCurveChart from './PnlCurveChart.jsx'
 import PortfolioAvatar from './PortfolioAvatar.jsx'
-import {
-  fetchRemoteTokenIcon,
-  hasRemoteTokenIconLookup,
-} from '../../lib/tokenIconRemote.js'
-import { tokenLogoCandidates } from '../../lib/tokenLogoUrls.js'
+import Web3TokenIcon from './Web3TokenIcon.jsx'
 
 /** Thornado UI tokens — aligned with Account.jsx & Terminal widgets */
 const C = {
@@ -37,122 +33,10 @@ function pickCollateralRow(balances) {
   return balances[0]
 }
 
-function hashString(seed) {
-  const s = String(seed ?? '')
-  let h = 0
-  for (let i = 0; i < s.length; i += 1) {
-    h = (h * 31 + s.charCodeAt(i)) >>> 0
-  }
-  return h
-}
-
-function TokenAvatar({ seed, symbol, size = 21 }) {
-  const rawHash = hashString(seed)
-  const hue = rawHash % 360
-  const clean = String(symbol ?? '')
-    .toUpperCase()
-    .replace(/[^A-Z0-9]/g, '')
-  const label = clean.slice(0, 2) || '?'
-
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      aria-hidden="true"
-      className="shrink-0"
-    >
-      <defs>
-        <linearGradient id={`g-${rawHash}`} x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" stopColor={`hsl(${hue} 90% 55%)`} />
-          <stop offset="1" stopColor={`hsl(${(hue + 40) % 360} 90% 45%)`} />
-        </linearGradient>
-      </defs>
-      <circle cx="12" cy="12" r="10.2" fill={`url(#g-${rawHash})`} />
-      <circle
-        cx="12"
-        cy="12"
-        r="10.2"
-        fill="none"
-        stroke="rgba(255,255,255,0.14)"
-        strokeWidth="1"
-      />
-      <text
-        x="12"
-        y="15.6"
-        textAnchor="middle"
-        fontSize={size >= 21 ? 12 : size >= 18 ? 10 : 9}
-        fill="white"
-        fontFamily="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto"
-        style={{ fontWeight: 800 }}
-      >
-        {label}
-      </text>
-    </svg>
-  )
-}
-
-function TokenImageOrFallback({ candidates, seed, symbol, size = 21 }) {
-  const [idx, setIdx] = useState(0)
-  if (!candidates?.length || idx >= candidates.length) {
-    return <TokenAvatar seed={seed} symbol={symbol} size={size} />
-  }
-  return (
-    <img
-      src={candidates[idx]}
-      alt=""
-      width={size}
-      height={size}
-      className="shrink-0 rounded-full bg-white/5 object-cover ring-1 ring-white/10"
-      style={{ width: size, height: size }}
-      onError={() => setIdx((i) => i + 1)}
-      loading="lazy"
-      decoding="async"
-    />
-  )
-}
-
-function AssetCell({ symbol, seed, tokenAddress, chainId, publicClient }) {
-  const remoteIconQuery = useQuery({
-    queryKey: [
-      'remote-token-icon',
-      chainId,
-      tokenAddress,
-      publicClient?.chain?.id,
-    ],
-    queryFn: () =>
-      fetchRemoteTokenIcon(chainId, tokenAddress, { publicClient }),
-    enabled: Boolean(
-      chainId != null &&
-      tokenAddress &&
-      isAddress(String(tokenAddress).trim()) &&
-      (hasRemoteTokenIconLookup(chainId) || publicClient),
-    ),
-    staleTime: 7 * 24 * 60 * 60 * 1000,
-    gcTime: 8 * 24 * 60 * 60 * 1000,
-    retry: 1,
-  })
-
-  const candidates = useMemo(() => {
-    const staticList = tokenLogoCandidates({ tokenAddress, symbol, chainId })
-    const u = remoteIconQuery.data
-    if (
-      typeof u === 'string' &&
-      (u.startsWith('http') || u.startsWith('data:image/'))
-    ) {
-      return [...new Set([u, ...staticList])]
-    }
-    return staticList
-  }, [tokenAddress, symbol, chainId, remoteIconQuery.data])
+function AssetCell({ symbol, seed, nadoAppOrigin }) {
   return (
     <div className="flex items-center gap-2.5">
-      <TokenImageOrFallback
-        key={candidates.join('|')}
-        candidates={candidates}
-        seed={seed}
-        symbol={symbol}
-        size={21}
-      />
+      <Web3TokenIcon symbol={symbol} seed={seed} size={21} nadoAppOrigin={nadoAppOrigin} />
       <div className="min-w-0">
         <div className="truncate font-sans text-[14px] font-medium leading-snug text-slate-200">
           {symbol || '—'}
@@ -263,12 +147,17 @@ export default function NadoPortfolioView({
           fmt={fmt}
           chainId={chainId}
           publicClient={publicClient}
+          nadoAppOrigin={nadoAppOrigin}
+          getNadoClient={getNadoClient}
+          chainEnv={chainEnv}
         />
       )}
 
       {mainTab === 'margin' && <MarginManagerTab portfolio={portfolio} fmt={fmt} />}
 
-      {mainTab === 'history' && <HistoryTab portfolio={portfolio} fmt={fmt} />}
+      {mainTab === 'history' && (
+        <HistoryTab portfolio={portfolio} fmt={fmt} nadoAppOrigin={nadoAppOrigin} />
+      )}
 
       <NadoDepositWithdrawModal
         open={Boolean(dwModal)}
@@ -278,6 +167,7 @@ export default function NadoPortfolioView({
         ownerAddress={walletAddress}
         subaccountName="default"
         onCompleted={onInvalidatePortfolio}
+        nadoAppOrigin={nadoAppOrigin}
       />
       <NadoTransferModal
         open={transferOpen}
@@ -286,6 +176,7 @@ export default function NadoPortfolioView({
         ownerAddress={walletAddress}
         subaccountName="default"
         onCompleted={onInvalidatePortfolio}
+        nadoAppOrigin={nadoAppOrigin}
       />
     </div>
   )
@@ -298,8 +189,12 @@ function OverviewTab({
   fmt,
   chainId,
   publicClient,
+  nadoAppOrigin,
+  getNadoClient,
+  chainEnv,
 }) {
   const [portfolioDataTab, setPortfolioDataTab] = useState('balances')
+  const [commandCenterOpen, setCommandCenterOpen] = useState(false)
   const um = portfolio.unifiedMargin
   const loading = portfolio.queries.summary.isLoading
   const noSubaccount = portfolio.queries.summary.isSuccess && portfolio.summary?.exists === false
@@ -445,25 +340,37 @@ function OverviewTab({
       </section>
 
       <section className={`${C.card} overflow-hidden p-0`}>
-        <div className="flex flex-wrap gap-0.5 border-b border-white/[0.08] p-1.5">
-          {[
-            { id: 'balances', label: 'Spot' },
-            { id: 'positions', label: 'Positions' },
-            { id: 'orders', label: 'Open orders' },
-          ].map((tab) => (
-            <button
-              key={tab.id}
-              type="button"
-              onClick={() => setPortfolioDataTab(tab.id)}
-              className={`rounded-md px-3.5 py-1.5 text-[14px] font-medium leading-snug transition ${
-                portfolioDataTab === tab.id
-                  ? 'bg-violet-500/20 text-violet-100'
-                  : 'text-slate-500 hover:bg-white/[0.04] hover:text-slate-300'
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
+        <div className="flex flex-wrap items-center gap-0.5 border-b border-white/[0.08] p-1.5">
+          <div className="flex flex-wrap gap-0.5">
+            {[
+              { id: 'balances', label: 'Spot' },
+              { id: 'positions', label: 'Positions' },
+              { id: 'orders', label: 'Open orders' },
+            ].map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setPortfolioDataTab(tab.id)}
+                className={`rounded-md px-3.5 py-1.5 text-[14px] font-medium leading-snug transition ${
+                  portfolioDataTab === tab.id
+                    ? 'bg-violet-500/20 text-violet-100'
+                    : 'text-slate-500 hover:bg-white/[0.04] hover:text-slate-300'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+          <button
+            type="button"
+            aria-label="Search markets"
+            disabled={!getNadoClient}
+            title={getNadoClient ? 'Search markets' : 'Connect wallet to search markets'}
+            onClick={() => setCommandCenterOpen(true)}
+            className="ml-auto inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-white/10 bg-white/[0.04] text-slate-400 transition hover:bg-white/[0.08] hover:text-slate-200 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <Search className="h-4 w-4" strokeWidth={2} aria-hidden />
+          </button>
         </div>
 
         {portfolioDataTab === 'balances' && (
@@ -479,9 +386,7 @@ function OverviewTab({
                   key={`asset-${b.id}`}
                   symbol={b.symbol}
                   seed={b.tokenAddr ?? String(b.productId ?? b.id)}
-                  tokenAddress={b.tokenAddr}
-                  chainId={chainId}
-                  publicClient={publicClient}
+                  nadoAppOrigin={nadoAppOrigin}
                 />,
                 `${fmt.number(b.total)} · ${fmt.currency(b.usdValue)}`,
                 fmt.weightPercent(b.weightInitial),
@@ -509,9 +414,7 @@ function OverviewTab({
                   key={`pos-${p.id}`}
                   symbol={p.market}
                   seed={String(p.productId ?? p.tokenAddr ?? p.id)}
-                  tokenAddress={p.tokenAddr}
-                  chainId={chainId}
-                  publicClient={publicClient}
+                  nadoAppOrigin={nadoAppOrigin}
                 />,
                 <span key={`side-${p.id}`} className={tradeSideClass(p.side)}>
                   {p.side}
@@ -542,6 +445,14 @@ function OverviewTab({
           />
         )}
       </section>
+
+      <MarketCommandCenterModal
+        open={commandCenterOpen}
+        onClose={() => setCommandCenterOpen(false)}
+        getNadoClient={getNadoClient}
+        chainEnv={chainEnv}
+        nadoAppOrigin={nadoAppOrigin}
+      />
     </div>
   )
 }
@@ -610,7 +521,7 @@ function pnlCellClass(value) {
   return 'text-slate-400'
 }
 
-function HistoryTab({ portfolio, fmt }) {
+function HistoryTab({ portfolio, fmt, nadoAppOrigin }) {
   const q = portfolio.queries.trades
   const trades = portfolio.trades ?? []
   const stats = useMemo(() => historyTradeStats(trades), [trades])
@@ -694,8 +605,12 @@ function HistoryTab({ portfolio, fmt }) {
                   <td className="whitespace-nowrap px-2.5 py-2.5 font-mono text-[13px] text-slate-400">
                     {fmt.datetime(t.time)}
                   </td>
-                  <td className="max-w-[10rem] truncate px-2.5 py-2.5 font-medium text-slate-200">
-                    {t.market}
+                  <td className="max-w-[14rem] min-w-[8rem] px-2.5 py-2.5">
+                    <AssetCell
+                      symbol={t.market}
+                      seed={t.id}
+                      nadoAppOrigin={nadoAppOrigin}
+                    />
                   </td>
                   <td className="px-2.5 py-2.5">
                     <span

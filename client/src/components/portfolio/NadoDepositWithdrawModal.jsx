@@ -20,7 +20,7 @@ import {
 } from '../../lib/nadoSpotCollateral.js'
 import { useNadoNetwork } from '../../context/NadoNetworkContext.jsx'
 import { formatUserFacingError } from '../../lib/formatUserFacingError.js'
-import { tokenLogoCandidates } from '../../lib/tokenLogoUrls.js'
+import Web3TokenIcon from './Web3TokenIcon.jsx'
 
 /** Nado-style: surface row (combobox trigger). */
 const rowTrigger =
@@ -59,37 +59,6 @@ function ChainGlyph({ testnet }) {
   )
 }
 
-function TokenGlyph({ tokenAddress, symbol, chainId }) {
-  const candidates = useMemo(
-    () => tokenLogoCandidates({ tokenAddress, symbol, chainId }),
-    [tokenAddress, symbol, chainId],
-  )
-  const [idx, setIdx] = useState(0)
-  const label = String(symbol ?? '?')
-    .toUpperCase()
-    .replace(/[^A-Z0-9]/g, '')
-    .slice(0, 2)
-
-  if (!candidates.length || idx >= candidates.length) {
-    return (
-      <span className="flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full bg-white/10 text-[9px] font-bold text-slate-200 ring-1 ring-white/15">
-        {label || '?'}
-      </span>
-    )
-  }
-  return (
-    <img
-      src={candidates[idx]}
-      alt=""
-      width={18}
-      height={18}
-      className="h-[18px] w-[18px] shrink-0 rounded-full object-cover ring-1 ring-white/10"
-      onError={() => setIdx((i) => i + 1)}
-      loading="lazy"
-    />
-  )
-}
-
 export default function NadoDepositWithdrawModal({
   open,
   mode,
@@ -98,6 +67,7 @@ export default function NadoDepositWithdrawModal({
   ownerAddress,
   subaccountName = 'default',
   onCompleted,
+  nadoAppOrigin = null,
   docsDepositUrl = 'https://docs.nado.xyz/developer-resources/api/depositing',
   docsWithdrawUrl = 'https://docs.nado.xyz/developer-resources/api/withdrawing-on-chain',
 }) {
@@ -388,7 +358,6 @@ export default function NadoDepositWithdrawModal({
   const title = mode === 'deposit' ? 'Deposit' : 'Withdraw'
 
   const wrongChain = chainId !== activeChain.id
-  const chainIdForLogos = activeChain?.id
 
   return (
     <div
@@ -491,10 +460,11 @@ export default function NadoDepositWithdrawModal({
                 <div className="relative z-[1] flex min-w-0 items-center gap-x-2">
                   {selectedToken ? (
                     <>
-                      <TokenGlyph
-                        tokenAddress={selectedToken.tokenAddr}
+                      <Web3TokenIcon
                         symbol={selectedToken.symbol}
-                        chainId={chainIdForLogos}
+                        seed={selectedToken.tokenAddr ?? String(selectedToken.productId)}
+                        size={18}
+                        nadoAppOrigin={nadoAppOrigin}
                       />
                       <span className="truncate text-slate-100">{selectedToken.symbol}</span>
                       <span className="text-xs text-slate-500">#{productId}</span>
@@ -524,10 +494,11 @@ export default function NadoDepositWithdrawModal({
                           setOpenAssetMenu(false)
                         }}
                       >
-                        <TokenGlyph
-                          tokenAddress={o.tokenAddr}
+                        <Web3TokenIcon
                           symbol={o.symbol}
-                          chainId={chainIdForLogos}
+                          seed={o.tokenAddr ?? String(o.productId)}
+                          size={18}
+                          nadoAppOrigin={nadoAppOrigin}
                         />
                         <span className="min-w-0 flex-1 truncate">{o.symbol}</span>
                         <span className="shrink-0 text-[11px] text-slate-500">#{o.productId}</span>
