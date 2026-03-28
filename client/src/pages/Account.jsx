@@ -117,6 +117,7 @@ export default function Account() {
     getNadoClient,
   } = useNadoLinkedSigner()
   const { chainEnv, activeChain } = useNadoNetwork()
+  const isMainnetEnv = chainEnv === 'inkMainnet'
   const { data: session, isLoading: sessionLoading, error: sessionError } = useSession()
   const invalidateSession = useInvalidateSession()
   const queryClient = useQueryClient()
@@ -293,6 +294,108 @@ export default function Account() {
             </section>
           )}
 
+          {(connStatus === 'connecting' || connStatus === 'reconnecting') &&
+            !isConnected && (
+              <section className="flex justify-center px-0 sm:px-2">
+                <div className="relative w-full max-w-[22rem] overflow-hidden rounded-2xl border border-white/[0.08] bg-[rgba(10,12,28,0.92)] px-6 py-12 text-center shadow-[0_24px_48px_-20px_rgba(0,0,0,0.65)] ring-1 ring-inset ring-white/[0.03] backdrop-blur-md sm:px-8">
+                  <div
+                    className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-violet-500/35 to-transparent"
+                    aria-hidden
+                  />
+                  <div className="relative flex min-h-[10rem] flex-col items-center justify-center gap-3">
+                    <Loader2
+                      className="h-9 w-9 shrink-0 animate-spin text-violet-400/90"
+                      aria-hidden
+                    />
+                    <p className="text-sm font-medium text-slate-300">
+                      Reconnecting wallet…
+                    </p>
+                    <p className="max-w-[14rem] text-[11px] leading-relaxed text-slate-500">
+                      Approve the connection in your wallet if a window opens.
+                    </p>
+                  </div>
+                </div>
+              </section>
+            )}
+
+          {!isConnected &&
+            connStatus !== 'connecting' &&
+            connStatus !== 'reconnecting' && (
+              <section className="flex justify-center px-0 sm:px-2">
+                <div className="relative w-full max-w-[22rem] overflow-hidden rounded-2xl border border-white/[0.08] bg-[rgba(10,12,28,0.92)] shadow-[0_24px_48px_-20px_rgba(0,0,0,0.65)] ring-1 ring-inset ring-white/[0.03] backdrop-blur-md">
+                  <div
+                    className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-violet-500/35 to-transparent"
+                    aria-hidden
+                  />
+                  <div className="relative px-5 pb-7 pt-6 sm:px-6">
+                    <div className="flex gap-3.5 rounded-xl border border-white/[0.06] bg-black/30 p-3.5">
+                      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-violet-500/[0.18]">
+                        <Wallet
+                          className="h-[1.15rem] w-[1.15rem] text-violet-100"
+                          strokeWidth={2}
+                          aria-hidden
+                        />
+                      </div>
+                      <div className="min-w-0 flex-1 text-left">
+                        <p className="text-[13px] font-medium leading-snug text-slate-200">
+                          Signed out
+                        </p>
+                        <p className="mt-1.5 text-[11px] leading-relaxed text-slate-500">
+                          Wallet disconnected — THORNado can&apos;t load your account yet.
+                        </p>
+                        <div className="mt-2.5 flex flex-wrap items-center gap-2">
+                          <span
+                            className={`inline-flex rounded-md px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+                              isMainnetEnv
+                                ? 'bg-emerald-500/15 text-emerald-200/95'
+                                : 'bg-amber-500/15 text-amber-100/95'
+                            }`}
+                          >
+                            {isMainnetEnv ? 'Mainnet' : 'Testnet'}
+                          </span>
+                          <span className="text-[11px] text-slate-400">{activeChain.name}</span>
+                          <span className="font-mono text-[10px] text-slate-500 tabular-nums">
+                            {activeChain.id}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <h2 className="mt-6 text-center text-xl font-semibold tracking-tight text-white">
+                      Connect to continue
+                    </h2>
+                    <p className="mt-2 text-center text-[13px] leading-relaxed text-slate-400">
+                      {isMainnetEnv ? (
+                        <>
+                          Next step uses{' '}
+                          <span className="font-medium text-slate-300">mainnet</span>: real funds on
+                          Nado and this app.
+                        </>
+                      ) : (
+                        <>
+                          Next step uses{' '}
+                          <span className="font-medium text-slate-300">testnet</span> — practice
+                          with sandbox funds only.
+                        </>
+                      )}
+                    </p>
+                    <button
+                      type="button"
+                      disabled={connectPending}
+                      onClick={() => {
+                        const c = connectors[0]
+                        if (c) connect({ connector: c })
+                      }}
+                      className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-violet-600 px-4 py-3 text-sm font-semibold text-white shadow-md shadow-violet-950/40 transition hover:bg-violet-500 disabled:opacity-50"
+                    >
+                      <Wallet className="h-4 w-4 shrink-0 opacity-95" />
+                      {connectPending ? 'Connecting…' : 'Connect wallet'}
+                    </button>
+                  </div>
+                </div>
+              </section>
+            )}
+
           {canShowNadoSummarySection && (
             <>
               <NadoPortfolioView
@@ -303,6 +406,7 @@ export default function Account() {
                 getNadoClient={getNadoClient}
                 onInvalidatePortfolio={invalidatePortfolio}
                 depositWithdrawEnabled={canQueryNadoEngine}
+                publicClient={publicClient}
               />
               {portfolio.hasAnyError && !portfolio.isLoadingAny && (
                 <section className="rounded-xl border border-amber-400/30 bg-amber-950/20 p-4">
@@ -317,34 +421,20 @@ export default function Account() {
           )}
         </div>
 
-        {/* Secondary: wallet + session + linked signer — sticky on wide screens */}
-        <aside className="order-2 flex w-full shrink-0 flex-col gap-3 lg:sticky lg:top-6 lg:order-2 lg:w-72 lg:max-w-[18rem] lg:max-h-[calc(100vh-1.5rem)] lg:overflow-y-auto">
-          <section className={asideCard}>
-            <h2 className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">
-              Session
-            </h2>
-            {connStatus === 'connecting' || connStatus === 'reconnecting' ? (
-              <div className="mt-3 flex items-center gap-2 text-xs text-slate-400">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Connecting wallet…
-              </div>
-            ) : !isConnected ? (
-              <div className="mt-3">
-                <button
-                  type="button"
-                  disabled={connectPending}
-                  onClick={() => {
-                    const c = connectors[0]
-                    if (c) connect({ connector: c })
-                  }}
-                  className="inline-flex items-center gap-2 rounded-lg bg-violet-500/90 px-3 py-2 text-xs font-medium text-white shadow-lg shadow-violet-500/20 transition hover:bg-violet-400 disabled:opacity-50"
-                >
-                  <Wallet className="h-4 w-4" />
-                  {connectPending ? 'Connecting…' : 'Connect wallet'}
-                </button>
-              </div>
-            ) : (
-              <div className="mt-2 space-y-1.5 text-xs leading-snug">
+        {/* Secondary: wallet + session + linked signer — only after wallet connects */}
+        {isConnected && (
+          <aside className="order-2 flex w-full shrink-0 flex-col gap-3 lg:sticky lg:top-6 lg:order-2 lg:w-72 lg:max-w-[18rem] lg:max-h-[calc(100vh-1.5rem)] lg:overflow-y-auto">
+            <section className={asideCard}>
+              <h2 className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">
+                Session
+              </h2>
+              {connStatus === 'connecting' || connStatus === 'reconnecting' ? (
+                <div className="mt-3 flex items-center gap-2 text-xs text-slate-400">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Connecting wallet…
+                </div>
+              ) : (
+                <div className="mt-2 space-y-1.5 text-xs leading-snug">
                 <div className="text-violet-100">
                   <AddressAbbr address={address} />
                 </div>
@@ -430,9 +520,9 @@ export default function Account() {
                 </p>
               </div>
             )}
-          </section>
+            </section>
 
-          {isConnected && !onWrongChain && walletClient && (
+          {!onWrongChain && walletClient && (
             <section className={asideCard}>
               <h2 className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">
                 Nado linked signer
@@ -580,7 +670,8 @@ export default function Account() {
           </div>
             </section>
           )}
-        </aside>
+          </aside>
+        )}
       </div>
     </div>
   )

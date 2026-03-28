@@ -1,8 +1,9 @@
 import { useMemo } from 'react'
 import { useQueries, useQuery } from '@tanstack/react-query'
 import {
-  adaptBalances,
   adaptPerpPositionsFromBalances,
+  adaptSpotBalances,
+  collectSpotTokenAddresses,
   adaptOrders,
   adaptPnl,
   adaptPositions,
@@ -10,7 +11,13 @@ import {
   adaptSummary,
   adaptTrades,
   deriveUnifiedMargin,
+  normalizePerpMarketLabel,
+  resolvePositionTokenAddress,
 } from '../lib/portfolioAdapters.js'
+import { fetchErc20Symbols } from '../lib/erc20TokenSymbols.js'
+import { buildPerpBaseTokenAddressMap } from '../lib/nadoPerpBaseToken.js'
+
+const EMPTY_PERP_TOKEN_MAP = Object.freeze({})
 
 function getInvoker(target, name) {
   const fn = target?.[name]
@@ -195,14 +202,64 @@ export function usePortfolioData({
     return map
   }, [symbolsQuery.data])
 
+  const spotTokenAddresses = useMemo(() => {
+    const raw = summaryQuery.data?.balances ?? []
+    const addrs = collectSpotTokenAddresses(raw)
+    return [...new Set(addrs.map((a) => String(a)))].sort()
+  }, [summaryQuery.data])
+
+  const spotTokenSymbolsQuery = useQuery({
+    queryKey: [
+      'portfolio-spot-erc20-symbols',
+      chainEnv,
+      spotTokenAddresses.join(','),
+    ],
+    enabled: Boolean(
+      enabled && ownerAddress && spotTokenAddresses.length > 0,
+    ),
+    queryFn: async () => {
+      try {
+        const client = getNadoClient?.()
+        const pc = client?.context?.publicClient
+        if (!pc) return {}
+        return await fetchErc20Symbols(pc, spotTokenAddresses)
+      } catch {
+        return {}
+      }
+    },
+  })
+
+  const perpBaseTokensQuery = useQuery({
+    queryKey: ['portfolio-perp-base-tokens', chainEnv],
+    enabled: Boolean(enabled && ownerAddress),
+    queryFn: async () => {
+      try {
+        const client = getNadoClient?.()
+        const ec = client?.context?.engineClient
+        if (!ec) return {}
+        return await buildPerpBaseTokenAddressMap(ec)
+      } catch {
+        return {}
+      }
+    },
+  })
+
+  const perpBaseTokenByProductId = perpBaseTokensQuery.data ?? EMPTY_PERP_TOKEN_MAP
+
   const summary = useMemo(() => adaptSummary(summaryQuery.data), [summaryQuery.data])
   const balances = useMemo(
     () =>
-      adaptBalances(
+      adaptSpotBalances(
         summaryQuery.data?.balances ?? summary?.balances ?? [],
         symbolsByProductId,
+        spotTokenSymbolsQuery.data ?? {},
       ),
-    [summaryQuery.data, summary, symbolsByProductId],
+    [
+      summaryQuery.data,
+      summary,
+      symbolsByProductId,
+      spotTokenSymbolsQuery.data,
+    ],
   )
   const crossPositions = useMemo(
     () => adaptPositions(positionsQuery.data),
@@ -219,9 +276,22 @@ export function usePortfolioData({
   )
 
   const positions = useMemo(() => {
-    if (crossPositions?.length) return crossPositions
-    return perpPositionsFromBalances
-  }, [crossPositions, perpPositionsFromBalances])
+    const base =
+      crossPositions?.length > 0
+        ? crossPositions
+        : perpPositionsFromBalances
+    if (!base?.length) return base
+    const map = perpBaseTokenByProductId
+    return base.map((row) => ({
+      ...row,
+      market: normalizePerpMarketLabel(row.market),
+      tokenAddr: resolvePositionTokenAddress(row, map),
+    }))
+  }, [
+    crossPositions,
+    perpPositionsFromBalances,
+    perpBaseTokenByProductId,
+  ])
   const orders = useMemo(() => adaptOrders(ordersQuery.data), [ordersQuery.data])
   const trades = useMemo(
     () => adaptTrades(tradesQuery.data, symbolsByProductId),
@@ -265,6 +335,8 @@ export function usePortfolioData({
     queries: {
       summary: summaryQuery,
       symbols: symbolsQuery,
+      spotTokenSymbols: spotTokenSymbolsQuery,
+      perpBaseTokens: perpBaseTokensQuery,
       positions: positionsQuery,
       orders: ordersQuery,
       trades: tradesQuery,

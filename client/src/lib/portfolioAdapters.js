@@ -1,7 +1,42 @@
 import BigNumber from 'bignumber.js'
+import { getAddress, isAddress } from 'viem'
 
 /** Engine / SDK health numbers use 18-decimal fixed point. */
 const X18 = new BigNumber(10).pow(18)
+
+/** UI label from engine symbol (e.g. `SOL-PERP` → `SOL`). */
+export function normalizePerpMarketLabel(market) {
+  const s = String(market ?? '').trim()
+  if (!s) return s
+  return s.replace(/-PERP$/i, '').trim() || s
+}
+
+function pickChecksumAddr(v) {
+  if (v == null) return null
+  const s = String(v).trim()
+  if (!isAddress(s)) return null
+  try {
+    return getAddress(s)
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Prefer perp→spot base token from health map; then any valid on-chain addr on the row.
+ * (Perp summary rows from the SDK usually have no token address on the product.)
+ */
+export function resolvePositionTokenAddress(row, perpBaseTokenByProductId) {
+  const pid = row?.productId ?? row?.product_id ?? null
+  let fromMap = null
+  if (pid != null && perpBaseTokenByProductId && typeof perpBaseTokenByProductId === 'object') {
+    fromMap =
+      perpBaseTokenByProductId[String(pid)] ??
+      perpBaseTokenByProductId[Number(pid)] ??
+      null
+  }
+  return pickChecksumAddr(fromMap) ?? pickChecksumAddr(row?.tokenAddr ?? row?.token)
+}
 
 function toBigNumberish(v) {
   if (v == null) return null
@@ -255,7 +290,11 @@ function deriveUnrealizedPnlFromRawBalances(rawBalances) {
   return Number.isFinite(n) ? n : null
 }
 
-export function adaptBalances(payload, symbolsByProductId) {
+export function adaptBalances(
+  payload,
+  symbolsByProductId,
+  erc20SymbolByLowerAddress,
+) {
   return unwrapArray(payload).map((row, idx) => {
     let symbol = balanceLabelFromRow(row, idx)
     const kind = engineBalanceKind(row)
@@ -267,6 +306,19 @@ export function adaptBalances(payload, symbolsByProductId) {
     if (productId != null && symbolsByProductId) {
       const mapped = symbolsByProductId[String(productId)]
       if (mapped != null && String(mapped).trim() !== '') symbol = String(mapped).trim()
+    }
+
+    // On-chain ERC-20 `symbol()` — matches wallets / block explorers (overrides short engine tickers).
+    if (
+      kind === 'spot' &&
+      tokenAddr &&
+      erc20SymbolByLowerAddress &&
+      typeof erc20SymbolByLowerAddress === 'object'
+    ) {
+      const onChain = erc20SymbolByLowerAddress[String(tokenAddr).toLowerCase()]
+      if (onChain != null && String(onChain).trim() !== '') {
+        symbol = String(onChain).trim()
+      }
     }
 
     const total = adaptBalanceAmount(row)
@@ -290,6 +342,26 @@ export function adaptBalances(payload, symbolsByProductId) {
       weightMaintenance,
     }
   })
+}
+
+/** Unique spot `tokenAddr` values from raw summary balances (for ERC-20 symbol reads). */
+export function collectSpotTokenAddresses(payload) {
+  return unwrapArray(payload)
+    .filter((row) => engineBalanceKind(row) === 'spot')
+    .map((row) => row.tokenAddr ?? row.token)
+    .filter((a) => a != null && String(a).trim() !== '')
+}
+
+/** Spot-only rows for the Balances UI; perps belong in Positions (see adaptPerpPositionsFromBalances). */
+export function adaptSpotBalances(
+  payload,
+  symbolsByProductId,
+  erc20SymbolByLowerAddress,
+) {
+  const rows = unwrapArray(payload).filter(
+    (row) => engineBalanceKind(row) === 'spot',
+  )
+  return adaptBalances(rows, symbolsByProductId, erc20SymbolByLowerAddress)
 }
 
 export function adaptPositions(payload) {
@@ -352,13 +424,13 @@ export function adaptPerpPositionsFromBalances(payload, symbolsByProductId) {
           : null
 
       const pnlProxy = row?.vQuoteBalance != null ? fromX18(row.vQuoteBalance) : null
-      const tokenAddr = row.tokenAddr ?? row.token ?? null
+      const tokenAddr = pickChecksumAddr(row.tokenAddr ?? row.token)
 
       return {
         id: `perp-bal-${productId ?? idx}-${idx}`,
         market: String(symbol ?? (productId != null ? `Perp #${productId}` : `Perp ${idx + 1}`)),
         productId,
-        tokenAddr: tokenAddr ? String(tokenAddr) : null,
+        tokenAddr,
         side,
         size,
         entry: null,
@@ -537,6 +609,48 @@ export function adaptPnl(payload, summary) {
   const nlpBalance = pick(pnlPayload ?? {}, ['nlpBalance', 'nlpValue'], null)
   const apr = pick(pnlPayload ?? {}, ['apr', 'nlpApr'], null)
   return { equity, unrealized, realized, dayPnl, volume30d, feeTier, nlpBalance, apr }
+}
+
+/**
+ * Cumulative realized PnL over time from adapted trade rows (oldest → newest).
+ * Uses `time` when present; otherwise preserves fetch order via stable index.
+ */
+export function buildCumulativeRealizedPnlSeries(trades) {
+  if (!Array.isArray(trades) || trades.length === 0) return []
+  const toNum = (v) => {
+    if (v == null) return 0
+    const n = typeof v === 'number' ? v : Number(v)
+    return Number.isFinite(n) ? n : 0
+  }
+  const rows = trades.map((t, i) => ({
+    time: t.time != null ? Number(t.time) : null,
+    rp: toNum(t.realizedPnl),
+    i,
+    market: t.market != null ? String(t.market) : null,
+    side: t.side != null ? String(t.side) : null,
+    id: t.id != null ? String(t.id) : null,
+  }))
+  rows.sort((a, b) => {
+    if (a.time != null && b.time != null) return a.time - b.time
+    if (a.time != null) return -1
+    if (b.time != null) return 1
+    return a.i - b.i
+  })
+  let sum = 0
+  return rows.map((row, idx) => {
+    const fillPnl = row.rp
+    sum += row.rp
+    return {
+      time: row.time,
+      cumulative: sum,
+      fillPnl,
+      market: row.market,
+      side: row.side,
+      tradeId: row.id,
+      fillIndex: idx + 1,
+      fillCount: rows.length,
+    }
+  })
 }
 
 export function adaptRisk(payload, summary) {

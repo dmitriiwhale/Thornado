@@ -32,7 +32,10 @@ function trustSlug(chainId) {
  * @see https://github.com/spothq/cryptocurrency-icons
  */
 export function symbolToCryptoIconTicker(symbol) {
-  const raw = String(symbol ?? '').trim()
+  const raw = String(symbol ?? '')
+    .trim()
+    .replace(/-PERP$/i, '')
+    .trim()
   if (!raw) return ''
   let t = raw.split(/[-/]/)[0].replace(/[^A-Za-z0-9]/g, '')
   if (!t) return ''

@@ -1,8 +1,19 @@
 import React, { useMemo, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
+import { isAddress } from 'viem'
 import NadoDepositWithdrawModal from './NadoDepositWithdrawModal.jsx'
 import NadoTransferModal from './NadoTransferModal.jsx'
 import { CHAIN_ENV_TO_CHAIN } from '@nadohq/shared'
-import { fmt, tradeSideClass } from '../../lib/portfolioAdapters.js'
+import {
+  fmt,
+  tradeSideClass,
+  buildCumulativeRealizedPnlSeries,
+} from '../../lib/portfolioAdapters.js'
+import PnlCurveChart from './PnlCurveChart.jsx'
+import {
+  fetchRemoteTokenIcon,
+  hasRemoteTokenIconLookup,
+} from '../../lib/tokenIconRemote.js'
 import { tokenLogoCandidates } from '../../lib/tokenLogoUrls.js'
 
 /** Thornado UI tokens — aligned with Account.jsx & Terminal widgets */
@@ -13,7 +24,7 @@ const C = {
   mono: 'font-mono text-xs text-slate-200 tabular-nums',
 }
 
-/** Prefer quote collateral (USDT in label); else first spot balance; else first row. */
+/** Prefer quote collateral (USDT in label); else first row. `balances` are spot-only. */
 function pickCollateralRow(balances) {
   if (!balances?.length) return null
   const bySymbol = balances.find(
@@ -22,8 +33,7 @@ function pickCollateralRow(balances) {
       String(b.symbol).toUpperCase() === 'USDT0'
   )
   if (bySymbol) return bySymbol
-  const spot = balances.find((b) => b.kind === 'spot')
-  return spot ?? balances[0]
+  return balances[0]
 }
 
 function hashString(seed) {
@@ -35,7 +45,7 @@ function hashString(seed) {
   return h
 }
 
-function TokenAvatar({ seed, symbol, size = 18 }) {
+function TokenAvatar({ seed, symbol, size = 21 }) {
   const rawHash = hashString(seed)
   const hue = rawHash % 360
   const clean = String(symbol ?? '')
@@ -70,7 +80,7 @@ function TokenAvatar({ seed, symbol, size = 18 }) {
         x="12"
         y="15.6"
         textAnchor="middle"
-        fontSize="10"
+        fontSize={size >= 21 ? 12 : size >= 18 ? 10 : 9}
         fill="white"
         fontFamily="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto"
         style={{ fontWeight: 800 }}
@@ -81,7 +91,7 @@ function TokenAvatar({ seed, symbol, size = 18 }) {
   )
 }
 
-function TokenImageOrFallback({ candidates, seed, symbol, size = 18 }) {
+function TokenImageOrFallback({ candidates, seed, symbol, size = 21 }) {
   const [idx, setIdx] = useState(0)
   if (!candidates?.length || idx >= candidates.length) {
     return <TokenAvatar seed={seed} symbol={symbol} size={size} />
@@ -92,7 +102,8 @@ function TokenImageOrFallback({ candidates, seed, symbol, size = 18 }) {
       alt=""
       width={size}
       height={size}
-      className="h-[18px] w-[18px] shrink-0 rounded-full bg-white/5 object-cover ring-1 ring-white/10"
+      className="shrink-0 rounded-full bg-white/5 object-cover ring-1 ring-white/10"
+      style={{ width: size, height: size }}
       onError={() => setIdx((i) => i + 1)}
       loading="lazy"
       decoding="async"
@@ -100,21 +111,49 @@ function TokenImageOrFallback({ candidates, seed, symbol, size = 18 }) {
   )
 }
 
-function AssetCell({ symbol, seed, tokenAddress, chainId }) {
-  const candidates = useMemo(
-    () => tokenLogoCandidates({ tokenAddress, symbol, chainId }),
-    [tokenAddress, symbol, chainId],
-  )
+function AssetCell({ symbol, seed, tokenAddress, chainId, publicClient }) {
+  const remoteIconQuery = useQuery({
+    queryKey: [
+      'remote-token-icon',
+      chainId,
+      tokenAddress,
+      publicClient?.chain?.id,
+    ],
+    queryFn: () =>
+      fetchRemoteTokenIcon(chainId, tokenAddress, { publicClient }),
+    enabled: Boolean(
+      chainId != null &&
+      tokenAddress &&
+      isAddress(String(tokenAddress).trim()) &&
+      (hasRemoteTokenIconLookup(chainId) || publicClient),
+    ),
+    staleTime: 7 * 24 * 60 * 60 * 1000,
+    gcTime: 8 * 24 * 60 * 60 * 1000,
+    retry: 1,
+  })
+
+  const candidates = useMemo(() => {
+    const staticList = tokenLogoCandidates({ tokenAddress, symbol, chainId })
+    const u = remoteIconQuery.data
+    if (
+      typeof u === 'string' &&
+      (u.startsWith('http') || u.startsWith('data:image/'))
+    ) {
+      return [...new Set([u, ...staticList])]
+    }
+    return staticList
+  }, [tokenAddress, symbol, chainId, remoteIconQuery.data])
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex items-center gap-2.5">
       <TokenImageOrFallback
         key={candidates.join('|')}
         candidates={candidates}
         seed={seed}
         symbol={symbol}
+        size={21}
       />
       <div className="min-w-0">
-        <div className="truncate font-sans text-[11px] font-medium text-slate-200">
+        <div className="truncate font-sans text-[14px] font-medium leading-snug text-slate-200">
           {symbol || '—'}
         </div>
       </div>
@@ -130,6 +169,7 @@ export default function NadoPortfolioView({
   getNadoClient,
   onInvalidatePortfolio,
   depositWithdrawEnabled = false,
+  publicClient = null,
 }) {
   const [mainTab, setMainTab] = useState('overview')
   const [dwModal, setDwModal] = useState(null)
@@ -223,6 +263,7 @@ export default function NadoPortfolioView({
           usdtRow={usdtRow}
           fmt={fmt}
           chainId={chainId}
+          publicClient={publicClient}
         />
       )}
 
@@ -257,6 +298,7 @@ function OverviewTab({
   usdtRow,
   fmt,
   chainId,
+  publicClient,
 }) {
   const [portfolioDataTab, setPortfolioDataTab] = useState('balances')
   const um = portfolio.unifiedMargin
@@ -291,14 +333,15 @@ function OverviewTab({
     return balancesRanked?.ranked ?? []
   }, [balancesRanked])
 
+  const pnlSeries = useMemo(
+    () => buildCumulativeRealizedPnlSeries(portfolio.trades),
+    [portfolio.trades],
+  )
+
   return (
     <div className="flex flex-col gap-3">
       <section className={`${C.card} p-4`}>
         <h3 className={C.label}>Unified margin</h3>
-        <p className={`${C.muted} mt-1 text-[11px] leading-relaxed`}>
-          From engine <span className="text-slate-400">health.initial / health.maintenance</span>{' '}
-          (assets, liabilities, health — x18). Usage ≈ liabilities ÷ assets.
-        </p>
         {loading && (
           <p className="mt-3 text-xs text-slate-500">Loading engine summary…</p>
         )}
@@ -390,9 +433,22 @@ function OverviewTab({
       </section>
 
       <section className={`${C.card} overflow-hidden p-0`}>
+        <div className="flex items-center justify-between border-b border-white/[0.08] px-3 py-2">
+          <span className="text-xs font-medium text-slate-200">Realized PnL</span>
+          <span className={`${C.muted} text-[10px]`}>cum. from recent fills</span>
+        </div>
+        <div className="w-full min-w-0 px-2 pb-2 pt-1">
+          <PnlCurveChart
+            series={pnlSeries}
+            isLoading={Boolean(portfolio.queries.trades?.isLoading)}
+          />
+        </div>
+      </section>
+
+      <section className={`${C.card} overflow-hidden p-0`}>
         <div className="flex flex-wrap gap-0.5 border-b border-white/[0.08] p-1.5">
           {[
-            { id: 'balances', label: 'Balances' },
+            { id: 'balances', label: 'Spot' },
             { id: 'positions', label: 'Positions' },
             { id: 'orders', label: 'Open orders' },
           ].map((tab) => (
@@ -400,7 +456,7 @@ function OverviewTab({
               key={tab.id}
               type="button"
               onClick={() => setPortfolioDataTab(tab.id)}
-              className={`rounded-md px-3 py-1.5 text-xs font-medium transition ${
+              className={`rounded-md px-3.5 py-1.5 text-[14px] font-medium leading-snug transition ${
                 portfolioDataTab === tab.id
                   ? 'bg-violet-500/20 text-violet-100'
                   : 'text-slate-500 hover:bg-white/[0.04] hover:text-slate-300'
@@ -416,7 +472,7 @@ function OverviewTab({
             key="balances"
             showTitle={false}
             columns={['Asset', 'Balance / Value', 'Init.', 'Maint.']}
-            empty="No balances."
+            empty="No spot balances."
             rows={visibleBalances.map((b) => ({
               key: b.id,
               cells: [
@@ -426,14 +482,19 @@ function OverviewTab({
                   seed={b.tokenAddr ?? String(b.productId ?? b.id)}
                   tokenAddress={b.tokenAddr}
                   chainId={chainId}
+                  publicClient={publicClient}
                 />,
                 `${fmt.number(b.total)} · ${fmt.currency(b.usdValue)}`,
                 fmt.weightPercent(b.weightInitial),
                 fmt.weightPercent(b.weightMaintenance),
               ],
             }))}
-            loading={portfolio.queries.summary.isLoading || portfolio.queries.symbols?.isLoading}
-            maxBodyHeightPx={320}
+            loading={
+              portfolio.queries.summary.isLoading ||
+              portfolio.queries.symbols?.isLoading ||
+              portfolio.queries.spotTokenSymbols?.isLoading
+            }
+            maxBodyHeightPx={381}
           />
         )}
         {portfolioDataTab === 'positions' && (
@@ -451,6 +512,7 @@ function OverviewTab({
                   seed={String(p.productId ?? p.tokenAddr ?? p.id)}
                   tokenAddress={p.tokenAddr}
                   chainId={chainId}
+                  publicClient={publicClient}
                 />,
                 <span key={`side-${p.id}`} className={tradeSideClass(p.side)}>
                   {p.side}
@@ -463,7 +525,7 @@ function OverviewTab({
               ],
             }))}
             loading={portfolio.queries.positions.isLoading}
-            maxBodyHeightPx={320}
+            maxBodyHeightPx={381}
           />
         )}
         {portfolioDataTab === 'orders' && (
@@ -477,7 +539,7 @@ function OverviewTab({
               cells: [o.market, o.side, fmt.number(o.price), fmt.number(o.size), o.status],
             }))}
             loading={portfolio.queries.orders.isLoading}
-            maxBodyHeightPx={320}
+            maxBodyHeightPx={381}
           />
         )}
       </section>
@@ -518,8 +580,8 @@ function MarginManagerTab({ portfolio, fmt }) {
         <Row label="Subaccount on engine" value={portfolio.summary?.exists ? 'yes' : 'no'} />
       </div>
       <p className={`${C.muted} mt-4 text-[11px] leading-relaxed`}>
-        Derived from <code className="text-slate-400">getSubaccountSummary</code> health object. Extra
-        risk endpoints from the SDK are listed only if present.
+        Figures come from your Nado engine account snapshot (margin and health). If more risk
+        details are available from Nado, they appear here automatically.
       </p>
     </section>
   )
@@ -632,11 +694,14 @@ function TableCard({
         className={`overflow-x-auto ${maxBodyHeightPx ? 'overflow-y-auto' : ''}`}
         style={maxBodyHeightPx ? { maxHeight: maxBodyHeightPx } : undefined}
       >
-        <table className="w-full min-w-[560px] text-left text-xs">
+        <table className="w-full min-w-[630px] text-left text-[14px] leading-snug">
           <thead>
             <tr className="border-b border-white/[0.08] text-slate-500">
               {columns.map((c) => (
-                <th key={c} className="whitespace-nowrap px-2.5 py-2 font-medium">
+                <th
+                  key={c}
+                  className="whitespace-nowrap px-2.5 py-2.5 text-[13px] font-medium"
+                >
                   {c}
                 </th>
               ))}
@@ -645,14 +710,20 @@ function TableCard({
           <tbody>
             {loading && (
               <tr>
-                <td colSpan={columns.length} className="px-3 py-5 text-center text-slate-500">
+                <td
+                  colSpan={columns.length}
+                  className="px-3 py-5 text-center text-[14px] text-slate-500"
+                >
                   Loading…
                 </td>
               </tr>
             )}
             {!loading && rows.length === 0 && (
               <tr>
-                <td colSpan={columns.length} className="px-3 py-6 text-center text-slate-500">
+                <td
+                  colSpan={columns.length}
+                  className="px-3 py-7 text-center text-[14px] text-slate-500"
+                >
                   {empty}
                 </td>
               </tr>
@@ -661,7 +732,10 @@ function TableCard({
               rows.map((r) => (
                 <tr key={r.key} className="border-t border-white/[0.06]">
                   {r.cells.map((cell, i) => (
-                    <td key={i} className="px-2.5 py-1.5 font-mono text-[11px] text-slate-300">
+                    <td
+                      key={i}
+                      className="px-2.5 py-2.5 font-mono text-[14px] text-slate-300"
+                    >
                       {cell}
                     </td>
                   ))}
