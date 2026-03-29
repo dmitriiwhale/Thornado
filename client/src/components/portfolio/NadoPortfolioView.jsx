@@ -3,6 +3,7 @@ import { Search } from 'lucide-react'
 import NadoDepositWithdrawModal from './NadoDepositWithdrawModal.jsx'
 import NadoTransferModal from './NadoTransferModal.jsx'
 import MarketCommandCenterModal from './MarketCommandCenterModal.jsx'
+import NadoPositionsTable from './NadoPositionsTable.jsx'
 import { CHAIN_ENV_TO_CHAIN } from '@nadohq/shared'
 import {
   fmt,
@@ -290,11 +291,10 @@ function OverviewTab({
 
       {/* Collateral snapshot */}
       <section className={`${C.card} overflow-hidden p-0`}>
-        <div className="flex items-center justify-between border-b border-white/[0.08] px-3 py-2">
+        <div className="border-b border-white/[0.08] px-3 py-2">
           <span className="text-xs font-medium text-slate-200">
             {usdtRow?.symbol ? `${usdtRow.symbol} balance` : 'Collateral'}
           </span>
-          <span className={C.muted + ' text-[10px]'}>engine</span>
         </div>
         <div className="px-3 py-3">
           {usdtRow ? (
@@ -327,9 +327,8 @@ function OverviewTab({
       </section>
 
       <section className={`${C.card} overflow-hidden p-0`}>
-        <div className="flex items-center justify-between border-b border-white/[0.08] px-3 py-2">
+        <div className="border-b border-white/[0.08] px-3 py-2">
           <span className="text-xs font-medium text-slate-200">Realized PnL</span>
-          <span className={`${C.muted} text-[10px]`}>cum. from recent fills</span>
         </div>
         <div className="w-full min-w-0 px-2 pb-2 pt-1">
           <PnlCurveChart
@@ -367,7 +366,7 @@ function OverviewTab({
             disabled={!getNadoClient}
             title={getNadoClient ? 'Search markets' : 'Connect wallet to search markets'}
             onClick={() => setCommandCenterOpen(true)}
-            className="ml-auto inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-white/10 bg-white/[0.04] text-slate-400 transition hover:bg-white/[0.08] hover:text-slate-200 disabled:cursor-not-allowed disabled:opacity-40"
+            className="ml-auto inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-violet-500/20 bg-white/[0.04] text-violet-400 transition hover:border-violet-400/35 hover:bg-violet-500/10 hover:text-violet-200 disabled:cursor-not-allowed disabled:opacity-40"
           >
             <Search className="h-4 w-4" strokeWidth={2} aria-hidden />
           </button>
@@ -402,33 +401,14 @@ function OverviewTab({
           />
         )}
         {portfolioDataTab === 'positions' && (
-          <TableCard
-            key="positions"
-            showTitle={false}
-            columns={['Market', 'Side', 'Size', 'Entry', 'Mark', 'PnL', 'Notional']}
-            empty={positionsError ? 'Failed to load positions.' : 'No positions.'}
-            rows={portfolio.positions.map((p) => ({
-              key: p.id,
-              cells: [
-                <AssetCell
-                  key={`pos-${p.id}`}
-                  symbol={p.market}
-                  seed={String(p.productId ?? p.tokenAddr ?? p.id)}
-                  nadoAppOrigin={nadoAppOrigin}
-                />,
-                <span key={`side-${p.id}`} className={tradeSideClass(p.side)}>
-                  {p.side}
-                </span>,
-                fmt.number(p.size),
-                fmt.number(p.entry),
-                fmt.number(p.mark),
-                fmt.signedCurrency(p.pnl),
-                fmt.currency(p.notional),
-              ],
-            }))}
-            loading={portfolio.queries.positions.isLoading}
-            maxBodyHeightPx={381}
-          />
+          <div className="max-h-[381px] min-h-0 overflow-y-auto">
+            <NadoPositionsTable
+              positions={portfolio.positions}
+              loading={portfolio.queries.positions.isLoading}
+              error={positionsError}
+              nadoAppOrigin={nadoAppOrigin}
+            />
+          </div>
         )}
         {portfolioDataTab === 'orders' && (
           <TableCard
@@ -513,6 +493,16 @@ function historyTradeStats(trades) {
   return { count: list.length, fees, realized }
 }
 
+function historyFundingStats(rows) {
+  const list = rows ?? []
+  let sum = 0
+  for (const r of list) {
+    const p = typeof r.payment === 'number' && Number.isFinite(r.payment) ? r.payment : 0
+    sum += p
+  }
+  return { count: list.length, sum }
+}
+
 function pnlCellClass(value) {
   if (value == null || Number.isNaN(Number(value))) return 'text-slate-400'
   const n = Number(value)
@@ -522,133 +512,281 @@ function pnlCellClass(value) {
 }
 
 function HistoryTab({ portfolio, fmt, nadoAppOrigin }) {
+  const [historyPanel, setHistoryPanel] = useState('trades')
   const q = portfolio.queries.trades
+  const qf = portfolio.queries.funding
   const trades = portfolio.trades ?? []
-  const stats = useMemo(() => historyTradeStats(trades), [trades])
+  const funding = portfolio.funding ?? []
+  const fundingScopeEmpty = portfolio.fundingScopeEmpty === true
+  const tradeStats = useMemo(() => historyTradeStats(trades), [trades])
+  const fundStats = useMemo(() => historyFundingStats(funding), [funding])
+
+  const subTabBtn = (id, label) => (
+    <button
+      key={id}
+      type="button"
+      onClick={() => setHistoryPanel(id)}
+      className={`flex-1 rounded-md px-2 py-1.5 text-center text-xs font-medium transition ${
+        historyPanel === id
+          ? 'bg-violet-500/20 text-violet-100 shadow-[0_0_10px_rgba(139,92,246,0.15)]'
+          : 'text-slate-500 hover:text-slate-300'
+      }`}
+    >
+      {label}
+    </button>
+  )
 
   return (
     <section className={`${C.card} overflow-hidden p-0`}>
       <div className="border-b border-white/[0.08] px-3 py-2">
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
-          <h3 className={C.label}>Trade history</h3>
-          {!q.isLoading && !q.error && stats.count > 0 && (
-            <div className="flex flex-wrap gap-2">
-              <div className="rounded-lg border border-white/[0.08] bg-black/20 px-2.5 py-1.5 text-right">
-                <div className="text-[9px] font-semibold uppercase tracking-wider text-slate-500">
-                  Fills (loaded)
-                </div>
-                <div className="font-mono text-sm tabular-nums text-slate-100">{stats.count}</div>
-              </div>
-              <div className="rounded-lg border border-white/[0.08] bg-black/20 px-2.5 py-1.5 text-right">
-                <div className="text-[9px] font-semibold uppercase tracking-wider text-slate-500">
-                  Fees Σ
-                </div>
-                <div className="font-mono text-sm tabular-nums text-slate-200">
-                  {fmt.currency(stats.fees)}
-                </div>
-              </div>
-              <div className="rounded-lg border border-white/[0.08] bg-black/20 px-2.5 py-1.5 text-right">
-                <div className="text-[9px] font-semibold uppercase tracking-wider text-slate-500">
-                  Realized Σ
-                </div>
-                <div
-                  className={`font-mono text-sm font-semibold tabular-nums ${pnlCellClass(stats.realized)}`}
-                >
-                  {fmt.signedCurrency(stats.realized)}
-                </div>
-              </div>
-            </div>
-          )}
+        <div className="mb-2 flex rounded-lg border border-white/10 bg-black/20 p-0.5">
+          {subTabBtn('trades', 'Trade history')}
+          {subTabBtn('funding', 'Funding history')}
         </div>
-      </div>
-      <div
-        className="overflow-x-auto overflow-y-auto"
-        style={{ maxHeight: 381 }}
-      >
-        <table className="w-full min-w-[630px] text-left text-[14px] leading-snug">
-          <thead className="sticky top-0 z-10 border-b border-white/[0.08] bg-[rgba(12,14,32,0.97)] shadow-[0_1px_0_rgba(255,255,255,0.06)] backdrop-blur-sm">
-            <tr className="text-slate-500">
-              <th className="whitespace-nowrap px-2.5 py-2.5 text-[13px] font-medium">Time</th>
-              <th className="whitespace-nowrap px-2.5 py-2.5 text-[13px] font-medium">Market</th>
-              <th className="whitespace-nowrap px-2.5 py-2.5 text-[13px] font-medium">Side</th>
-              <th className="whitespace-nowrap px-2.5 py-2.5 text-[13px] font-medium">Price</th>
-              <th className="whitespace-nowrap px-2.5 py-2.5 text-right text-[13px] font-medium">
-                Size
-              </th>
-              <th className="whitespace-nowrap px-2.5 py-2.5 text-right text-[13px] font-medium">
-                Fee
-              </th>
-              <th className="whitespace-nowrap px-2.5 py-2.5 text-right text-[13px] font-medium">
-                PnL
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {q.isLoading && (
-              <tr>
-                <td colSpan={7} className="px-3 py-5 text-center text-[14px] text-slate-500">
-                  Loading…
-                </td>
-              </tr>
-            )}
-            {!q.isLoading && q.error && (
-              <tr>
-                <td colSpan={7} className="px-3 py-7 text-center text-[14px] text-slate-500">
-                  Couldn&apos;t load fills with this SDK response.
-                </td>
-              </tr>
-            )}
-            {!q.isLoading &&
-              !q.error &&
-              trades.map((t) => (
-                <tr key={t.id} className="border-t border-white/[0.06]">
-                  <td className="whitespace-nowrap px-2.5 py-2.5 font-mono text-[13px] text-slate-400">
-                    {fmt.datetime(t.time)}
-                  </td>
-                  <td className="max-w-[14rem] min-w-[8rem] px-2.5 py-2.5">
-                    <AssetCell
-                      symbol={t.market}
-                      seed={t.id}
-                      nadoAppOrigin={nadoAppOrigin}
-                    />
-                  </td>
-                  <td className="px-2.5 py-2.5">
-                    <span
-                      className={`inline-block rounded-md px-2 py-0.5 text-[11px] font-semibold ${tradeSideClass(t.side)}`}
-                    >
-                      {t.side}
-                    </span>
-                  </td>
-                  <td className="whitespace-nowrap px-2.5 py-2.5 font-mono text-[14px] tabular-nums text-slate-300">
-                    {fmt.number(t.price)}
-                  </td>
-                  <td className="whitespace-nowrap px-2.5 py-2.5 text-right font-mono text-[14px] tabular-nums text-slate-300">
-                    {fmt.number(t.size)}
-                  </td>
-                  <td className="whitespace-nowrap px-2.5 py-2.5 text-right font-mono text-[14px] tabular-nums text-slate-400">
-                    {fmt.currency(t.fee)}
-                  </td>
-                  <td
-                    className={`whitespace-nowrap px-2.5 py-2.5 text-right font-mono text-[15px] font-semibold tabular-nums tracking-tight ${pnlCellClass(t.realizedPnl)}`}
+        {historyPanel === 'trades' && (
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+            <h3 className={C.label}>Trade history</h3>
+            {!q.isLoading && !q.error && tradeStats.count > 0 && (
+              <div className="flex flex-wrap gap-2">
+                <div className="rounded-lg border border-white/[0.08] bg-black/20 px-2.5 py-1.5 text-right">
+                  <div className="text-[9px] font-semibold uppercase tracking-wider text-slate-500">
+                    Fills (loaded)
+                  </div>
+                  <div className="font-mono text-sm tabular-nums text-slate-100">{tradeStats.count}</div>
+                </div>
+                <div className="rounded-lg border border-white/[0.08] bg-black/20 px-2.5 py-1.5 text-right">
+                  <div className="text-[9px] font-semibold uppercase tracking-wider text-slate-500">
+                    Fees Σ
+                  </div>
+                  <div className="font-mono text-sm tabular-nums text-slate-200">
+                    {fmt.currency(tradeStats.fees)}
+                  </div>
+                </div>
+                <div className="rounded-lg border border-white/[0.08] bg-black/20 px-2.5 py-1.5 text-right">
+                  <div className="text-[9px] font-semibold uppercase tracking-wider text-slate-500">
+                    Realized Σ
+                  </div>
+                  <div
+                    className={`font-mono text-sm font-semibold tabular-nums ${pnlCellClass(tradeStats.realized)}`}
                   >
-                    {fmt.signedCurrency(t.realizedPnl)}
+                    {fmt.signedCurrency(tradeStats.realized)}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+        {historyPanel === 'funding' && (
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+            <h3 className={C.label}>Funding history</h3>
+            {!qf.isLoading && !qf.error && !fundingScopeEmpty && fundStats.count > 0 && (
+              <div className="flex flex-wrap gap-2">
+                <div className="rounded-lg border border-white/[0.08] bg-black/20 px-2.5 py-1.5 text-right">
+                  <div className="text-[9px] font-semibold uppercase tracking-wider text-slate-500">
+                    Ticks (loaded)
+                  </div>
+                  <div className="font-mono text-sm tabular-nums text-slate-100">{fundStats.count}</div>
+                </div>
+                <div className="rounded-lg border border-white/[0.08] bg-black/20 px-2.5 py-1.5 text-right">
+                  <div className="text-[9px] font-semibold uppercase tracking-wider text-slate-500">
+                    Payment Σ
+                  </div>
+                  <div
+                    className={`font-mono text-sm font-semibold tabular-nums ${pnlCellClass(fundStats.sum)}`}
+                  >
+                    {fmt.signedCurrency(fundStats.sum)}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+      {historyPanel === 'trades' && (
+        <div
+          className="overflow-x-auto overflow-y-auto"
+          style={{ maxHeight: 381 }}
+        >
+          <table className="w-full min-w-[630px] text-left text-[14px] leading-snug">
+            <thead className="sticky top-0 z-10 border-b border-white/[0.08] bg-[rgba(12,14,32,0.97)] shadow-[0_1px_0_rgba(255,255,255,0.06)] backdrop-blur-sm">
+              <tr className="text-slate-500">
+                <th className="whitespace-nowrap px-2.5 py-2.5 text-[13px] font-medium">Time</th>
+                <th className="whitespace-nowrap px-2.5 py-2.5 text-[13px] font-medium">Market</th>
+                <th className="whitespace-nowrap px-2.5 py-2.5 text-[13px] font-medium">Side</th>
+                <th className="whitespace-nowrap px-2.5 py-2.5 text-[13px] font-medium">Price</th>
+                <th className="whitespace-nowrap px-2.5 py-2.5 text-right text-[13px] font-medium">
+                  Size
+                </th>
+                <th className="whitespace-nowrap px-2.5 py-2.5 text-right text-[13px] font-medium">
+                  Fee
+                </th>
+                <th className="whitespace-nowrap px-2.5 py-2.5 text-right text-[13px] font-medium">
+                  PnL
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {q.isLoading && (
+                <tr>
+                  <td colSpan={7} className="px-3 py-5 text-center text-[14px] text-slate-500">
+                    Loading…
                   </td>
                 </tr>
-              ))}
-            {!q.isLoading && !q.error && trades.length === 0 && (
-              <tr>
-                <td colSpan={7} className="px-3 py-7 text-center text-[14px] text-slate-500">
-                  No trades yet.
-                </td>
+              )}
+              {!q.isLoading && q.error && (
+                <tr>
+                  <td colSpan={7} className="px-3 py-7 text-center text-[14px] text-slate-500">
+                    Couldn&apos;t load fills with this SDK response.
+                  </td>
+                </tr>
+              )}
+              {!q.isLoading &&
+                !q.error &&
+                trades.map((t) => (
+                  <tr key={t.id} className="border-t border-white/[0.06]">
+                    <td className="whitespace-nowrap px-2.5 py-2.5 font-mono text-[13px] text-slate-400">
+                      {fmt.datetime(t.time)}
+                    </td>
+                    <td className="max-w-[14rem] min-w-[8rem] px-2.5 py-2.5">
+                      <AssetCell
+                        symbol={t.market}
+                        seed={t.id}
+                        nadoAppOrigin={nadoAppOrigin}
+                      />
+                    </td>
+                    <td className="px-2.5 py-2.5">
+                      <span
+                        className={`inline-block rounded-md px-2 py-0.5 text-[11px] font-semibold ${tradeSideClass(t.side)}`}
+                      >
+                        {t.side}
+                      </span>
+                    </td>
+                    <td className="whitespace-nowrap px-2.5 py-2.5 font-mono text-[14px] tabular-nums text-slate-300">
+                      {fmt.number(t.price, 0)}
+                    </td>
+                    <td className="whitespace-nowrap px-2.5 py-2.5 text-right font-mono text-[14px] tabular-nums text-slate-300">
+                      {fmt.number(t.size)}
+                    </td>
+                    <td className="whitespace-nowrap px-2.5 py-2.5 text-right font-mono text-[14px] tabular-nums text-slate-400">
+                      {fmt.currency(t.fee)}
+                    </td>
+                    <td
+                      className={`whitespace-nowrap px-2.5 py-2.5 text-right font-mono text-[15px] font-semibold tabular-nums tracking-tight ${pnlCellClass(t.realizedPnl)}`}
+                    >
+                      {fmt.signedCurrency(t.realizedPnl)}
+                    </td>
+                  </tr>
+                ))}
+              {!q.isLoading && !q.error && trades.length === 0 && (
+                <tr>
+                  <td colSpan={7} className="px-3 py-7 text-center text-[14px] text-slate-500">
+                    No trades yet.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {historyPanel === 'funding' && (
+        <div
+          className="overflow-x-auto overflow-y-auto"
+          style={{ maxHeight: 381 }}
+        >
+          <table className="w-full min-w-[720px] text-left text-[14px] leading-snug">
+            <thead className="sticky top-0 z-10 border-b border-white/[0.08] bg-[rgba(12,14,32,0.97)] shadow-[0_1px_0_rgba(255,255,255,0.06)] backdrop-blur-sm">
+              <tr className="text-slate-500">
+                <th className="whitespace-nowrap px-2.5 py-2.5 text-[13px] font-medium">Time</th>
+                <th className="whitespace-nowrap px-2.5 py-2.5 text-[13px] font-medium">Market</th>
+                <th className="whitespace-nowrap px-2.5 py-2.5 text-right text-[13px] font-medium">
+                  Payment
+                </th>
+                <th className="whitespace-nowrap px-2.5 py-2.5 text-right text-[13px] font-medium">
+                  Rate (APR)
+                </th>
+                <th className="whitespace-nowrap px-2.5 py-2.5 text-right text-[13px] font-medium">
+                  Oracle
+                </th>
+                <th className="whitespace-nowrap px-2.5 py-2.5 text-[13px] font-medium">
+                  Mode
+                </th>
               </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-      {!q.isLoading && !q.error && trades.length > 0 && (
+            </thead>
+            <tbody>
+              {qf.isLoading && (
+                <tr>
+                  <td colSpan={6} className="px-3 py-5 text-center text-[14px] text-slate-500">
+                    Loading…
+                  </td>
+                </tr>
+              )}
+              {!qf.isLoading && qf.error && (
+                <tr>
+                  <td colSpan={6} className="px-3 py-7 text-center text-[14px] text-slate-500">
+                    Couldn&apos;t load funding history from the indexer.
+                  </td>
+                </tr>
+              )}
+              {!qf.isLoading && !qf.error && fundingScopeEmpty && (
+                <tr>
+                  <td colSpan={6} className="px-3 py-7 text-center text-[14px] leading-relaxed text-slate-500">
+                    No product scope yet — fund the account or get a fill so we can query funding
+                    per market.
+                  </td>
+                </tr>
+              )}
+              {!qf.isLoading &&
+                !qf.error &&
+                !fundingScopeEmpty &&
+                funding.map((f) => (
+                  <tr key={f.id} className="border-t border-white/[0.06]">
+                    <td className="whitespace-nowrap px-2.5 py-2.5 font-mono text-[13px] text-slate-400">
+                      {fmt.datetime(f.time)}
+                    </td>
+                    <td className="max-w-[14rem] min-w-[8rem] px-2.5 py-2.5">
+                      <AssetCell
+                        symbol={f.market}
+                        seed={f.id}
+                        nadoAppOrigin={nadoAppOrigin}
+                      />
+                    </td>
+                    <td
+                      className={`whitespace-nowrap px-2.5 py-2.5 text-right font-mono text-[14px] font-semibold tabular-nums ${pnlCellClass(f.payment)}`}
+                    >
+                      {fmt.signedCurrency(f.payment)}
+                    </td>
+                    <td className="whitespace-nowrap px-2.5 py-2.5 text-right font-mono text-[13px] tabular-nums text-slate-300">
+                      {f.annualRate != null ? fmt.weightPercent(f.annualRate) : '—'}
+                    </td>
+                    <td className="whitespace-nowrap px-2.5 py-2.5 text-right font-mono text-[13px] tabular-nums text-slate-400">
+                      {fmt.number(f.oraclePrice, 4)}
+                    </td>
+                    <td className="whitespace-nowrap px-2.5 py-2.5 text-slate-400">
+                      {f.isolated ? 'Isolated' : 'Cross'}
+                    </td>
+                  </tr>
+                ))}
+              {!qf.isLoading && !qf.error && !fundingScopeEmpty && funding.length === 0 && (
+                <tr>
+                  <td colSpan={6} className="px-3 py-7 text-center text-[14px] text-slate-500">
+                    No funding payments in this window.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {historyPanel === 'trades' && !q.isLoading && !q.error && trades.length > 0 && (
         <div className="border-t border-white/[0.08] px-3 py-2 text-[11px] leading-relaxed text-slate-500">
           Totals above are for the fills listed in this table (same window as the API). Older
           activity may not appear.
+        </div>
+      )}
+      {historyPanel === 'funding' && !qf.isLoading && !qf.error && !fundingScopeEmpty && funding.length > 0 && (
+        <div className="border-t border-white/[0.08] px-3 py-2 text-[11px] leading-relaxed text-slate-500">
+          Perp funding ticks from the indexer (latest {funding.length} per product scope). Older
+          ticks may require pagination in a future update.
         </div>
       )}
     </section>

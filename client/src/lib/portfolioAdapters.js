@@ -440,7 +440,61 @@ function perpSideFromRawAmount(rawAmt) {
   return amtNum >= 0 ? 'LONG' : 'SHORT'
 }
 
-export function adaptPerpPositionsFromBalances(payload, symbolsByProductId) {
+/**
+ * From indexer `getMultiSubaccountSnapshots`: per-product `netEntryCumulative` (x18) /
+ * |postBalance.amount| (x18) = average entry price in quote per base.
+ * Prefer cross-margin rows (`isolated === false`) when the same product appears twice.
+ */
+export function extractNetEntryPriceByProductId(snapshotResponse) {
+  const out = {}
+  const snapshots = snapshotResponse?.snapshots
+  if (!snapshots || typeof snapshots !== 'object') return out
+
+  /** @type {Map<string, { price: number, isolated: boolean }>} */
+  const best = new Map()
+
+  for (const subHex of Object.keys(snapshots)) {
+    const byTs = snapshots[subHex]
+    if (!byTs || typeof byTs !== 'object') continue
+    for (const ts of Object.keys(byTs)) {
+      const shot = byTs[ts]
+      const balances = shot?.balances
+      if (!Array.isArray(balances)) continue
+      for (const ev of balances) {
+        // IndexerEvent: PERP state uses ProductEngineType.PERP === 1
+        if (ev?.state?.type !== 1) continue
+        const pid = ev.productId
+        if (pid == null) continue
+        const postAmt = ev.state?.postBalance?.amount
+        const netC = ev.trackedVars?.netEntryCumulative
+        if (postAmt == null || netC == null) continue
+        const den =
+          typeof postAmt.abs === 'function' ? postAmt.abs() : new BigNumber(postAmt).abs()
+        if (!den || den.isZero()) continue
+        const priceBn = netC.dividedBy(den)
+        const n = priceBn.toNumber()
+        if (!Number.isFinite(n)) continue
+        const absPrice = Math.abs(n)
+        if (!(absPrice > 0)) continue
+        const key = String(pid)
+        const isIso = Boolean(ev.isolated)
+        const prev = best.get(key)
+        if (!prev) best.set(key, { price: absPrice, isolated: isIso })
+        else if (prev.isolated && !isIso) best.set(key, { price: absPrice, isolated: false })
+      }
+    }
+  }
+
+  for (const [k, v] of best) out[k] = v.price
+  return out
+}
+
+/**
+ * @param {unknown} payload
+ * @param {Record<string, string>} symbolsByProductId
+ * @param {Record<string, number>} [netEntryByProductId] from {@link extractNetEntryPriceByProductId}
+ */
+export function adaptPerpPositionsFromBalances(payload, symbolsByProductId, netEntryByProductId = {}) {
   const rows = unwrapArray(payload)
   return rows
     .filter((r) => engineBalanceKind(r) === 'perp')
@@ -474,6 +528,14 @@ export function adaptPerpPositionsFromBalances(payload, symbolsByProductId) {
       const pnlProxy = row?.vQuoteBalance != null ? fromX18(row.vQuoteBalance) : null
       const tokenAddr = pickChecksumAddr(row.tokenAddr ?? row.token)
 
+      const pidKey = productId != null ? String(productId) : null
+      const fromIndexer =
+        pidKey != null && netEntryByProductId[pidKey] != null
+          ? netEntryByProductId[pidKey]
+          : null
+      const entryPrice =
+        fromIndexer != null && Number.isFinite(fromIndexer) ? fromIndexer : null
+
       return {
         id: `perp-bal-${productId ?? idx}-${idx}`,
         market: String(symbol ?? (productId != null ? `Perp #${productId}` : `Perp ${idx + 1}`)),
@@ -481,7 +543,7 @@ export function adaptPerpPositionsFromBalances(payload, symbolsByProductId) {
         tokenAddr,
         side,
         size,
-        entry: null,
+        entry: entryPrice,
         mark: oraclePx != null ? oraclePx : null,
         pnl: pnlProxy,
         notional,
@@ -629,6 +691,55 @@ export function adaptTrades(payload, symbolsByProductId = {}) {
       time,
     }
   })
+}
+
+function fundingTimestampMs(row) {
+  const ts = row?.timestamp
+  if (ts == null) return null
+  try {
+    const raw = typeof ts === 'object' && typeof ts.toString === 'function' ? ts.toString() : String(ts)
+    const n = Number(raw)
+    if (!Number.isFinite(n)) return null
+    return n < 1e12 ? n * 1000 : n
+  } catch {
+    return null
+  }
+}
+
+function bnToNumber(v) {
+  const b = toBigNumberish(v)
+  if (!b) return null
+  const n = b.toNumber()
+  return Number.isFinite(n) ? n : null
+}
+
+/**
+ * Indexer interest/funding API: `fundingPayments` only (perp funding ticks).
+ */
+export function adaptFundingPayments(rows, symbolsByProductId = {}) {
+  const list = unwrapArray(rows)
+  const out = list.map((row, idx) => {
+    const pid = row.productId ?? row.product_id
+    const sym =
+      (pid != null && symbolsByProductId[String(pid)]) ||
+      (pid != null ? `Product ${pid}` : `Product ${idx + 1}`)
+    const time = fundingTimestampMs(row)
+    return {
+      id: `${String(row.submissionIndex ?? 'f')}-${pid ?? idx}-${idx}`,
+      market: normalizePerpMarketLabel(String(sym)),
+      payment: bnToNumber(row.paymentAmount),
+      annualRate: bnToNumber(row.annualPaymentRate),
+      oraclePrice: bnToNumber(row.oraclePrice),
+      isolated: Boolean(row.isolated),
+      time,
+    }
+  })
+  out.sort((a, b) => {
+    const ta = a.time ?? 0
+    const tb = b.time ?? 0
+    return tb - ta
+  })
+  return out
 }
 
 export function adaptPnl(payload, summary) {

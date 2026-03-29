@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import { useQueries, useQuery } from '@tanstack/react-query'
 import {
   adaptPerpPositionsFromBalances,
+  extractNetEntryPriceByProductId,
   adaptSpotBalances,
   collectSpotTokenAddresses,
   adaptOrders,
@@ -10,6 +11,7 @@ import {
   adaptRisk,
   adaptSummary,
   adaptTrades,
+  adaptFundingPayments,
   deriveUnifiedMargin,
   isNonZeroOpenPosition,
   normalizePerpMarketLabel,
@@ -211,6 +213,51 @@ export function usePortfolioData({
     return map
   }, [symbolsQuery.data])
 
+  const accountSnapshotQuery = useQuery({
+    queryKey: ['portfolio-account-snapshot', ownerAddress, chainEnv, subaccountName],
+    enabled: Boolean(enabled && ownerAddress),
+    queryFn: async () => {
+      try {
+        const client = getNadoClient?.()
+        if (!client) return null
+        const indexer = client.context?.indexerClient
+        if (typeof indexer?.getMultiSubaccountSnapshots !== 'function') return null
+        const ts = Math.floor(Date.now() / 1000)
+        return await indexer.getMultiSubaccountSnapshots({
+          subaccounts: [{ subaccountOwner: ownerAddress, subaccountName }],
+          timestamps: [ts],
+        })
+      } catch {
+        return null
+      }
+    },
+  })
+
+  const fundingQuery = useQuery({
+    queryKey: [
+      'portfolio-funding',
+      ownerAddress,
+      chainEnv,
+      subaccountName,
+      productIdsForSymbols.join(','),
+    ],
+    enabled: Boolean(enabled && ownerAddress && productIdsForSymbols.length > 0),
+    queryFn: async () => {
+      const client = getNadoClient?.()
+      if (!client) throw new Error('Nado client unavailable')
+      const indexer = client.context?.indexerClient
+      if (typeof indexer?.getPaginatedSubaccountInterestFundingPayments !== 'function') {
+        return { fundingPayments: [], interestPayments: [] }
+      }
+      return indexer.getPaginatedSubaccountInterestFundingPayments({
+        subaccountOwner: ownerAddress,
+        subaccountName,
+        productIds: productIdsForSymbols,
+        limit: 50,
+      })
+    },
+  })
+
   const spotTokenAddresses = useMemo(() => {
     const raw = summaryQuery.data?.balances ?? []
     const addrs = collectSpotTokenAddresses(raw)
@@ -258,13 +305,19 @@ export function usePortfolioData({
     [positionsQuery.data],
   )
 
+  const netEntryByProductId = useMemo(
+    () => extractNetEntryPriceByProductId(accountSnapshotQuery.data),
+    [accountSnapshotQuery.data],
+  )
+
   const perpPositionsFromBalances = useMemo(
     () =>
       adaptPerpPositionsFromBalances(
         summaryQuery.data?.balances ?? [],
         symbolsByProductId,
+        netEntryByProductId,
       ),
-    [summaryQuery.data, symbolsByProductId],
+    [summaryQuery.data, symbolsByProductId, netEntryByProductId],
   )
 
   const positions = useMemo(() => {
@@ -275,15 +328,35 @@ export function usePortfolioData({
     if (!base?.length) return base
     return base
       .filter(isNonZeroOpenPosition)
-      .map((row) => ({
-        ...row,
-        market: normalizePerpMarketLabel(row.market),
-      }))
-  }, [crossPositions, perpPositionsFromBalances])
+      .map((row) => {
+        const pid = row.productId
+        const pidKey = pid != null ? String(pid) : null
+        const fromIndexer =
+          pidKey != null && netEntryByProductId[pidKey] != null
+            ? netEntryByProductId[pidKey]
+            : null
+        const entry =
+          row.entry != null && Number.isFinite(Number(row.entry))
+            ? row.entry
+            : fromIndexer != null && Number.isFinite(fromIndexer)
+              ? fromIndexer
+              : row.entry
+        return {
+          ...row,
+          market: normalizePerpMarketLabel(row.market),
+          entry,
+        }
+      })
+  }, [crossPositions, perpPositionsFromBalances, netEntryByProductId])
   const orders = useMemo(() => adaptOrders(ordersQuery.data), [ordersQuery.data])
   const trades = useMemo(
     () => adaptTrades(tradesQuery.data, symbolsByProductId),
     [tradesQuery.data, symbolsByProductId],
+  )
+  const funding = useMemo(
+    () =>
+      adaptFundingPayments(fundingQuery.data?.fundingPayments ?? [], symbolsByProductId),
+    [fundingQuery.data, symbolsByProductId],
   )
   const pnl = useMemo(
     () => adaptPnl(pnlQuery.data, summary),
@@ -302,9 +375,11 @@ export function usePortfolioData({
   const queries = [
     summaryQuery,
     symbolsQuery,
+    accountSnapshotQuery,
     positionsQuery,
     ordersQuery,
     tradesQuery,
+    fundingQuery,
     pnlQuery,
     riskQuery,
   ]
@@ -317,20 +392,25 @@ export function usePortfolioData({
     positions,
     orders,
     trades,
+    funding,
     pnl,
     risk,
     unifiedMargin,
     queries: {
       summary: summaryQuery,
       symbols: symbolsQuery,
+      accountSnapshot: accountSnapshotQuery,
       spotTokenSymbols: spotTokenSymbolsQuery,
       positions: positionsQuery,
       orders: ordersQuery,
       trades: tradesQuery,
+      funding: fundingQuery,
       pnl: pnlQuery,
       risk: riskQuery,
     },
     isLoadingAny,
     hasAnyError,
+    /** True when the indexer funding query has no product ids to query (empty balances / no symbols yet). */
+    fundingScopeEmpty: productIdsForSymbols.length === 0,
   }
 }

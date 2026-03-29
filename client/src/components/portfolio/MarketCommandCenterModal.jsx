@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { ProductEngineType } from '@nadohq/shared'
+import { ChevronDown } from 'lucide-react'
+import { NLP_PRODUCT_ID, ProductEngineType, QUOTE_PRODUCT_ID } from '@nadohq/shared'
 import Web3TokenIcon from './Web3TokenIcon.jsx'
 
 const CATEGORIES = [
@@ -46,7 +47,11 @@ async function fetchCommandCenterRows(getNadoClient) {
   const client = getNadoClient?.()
   if (!client) throw new Error('Client unavailable')
 
-  const markets = await client.market.getAllMarkets()
+  /** Skip engine “system” products — not tradable markets; often lack symbols in getSymbols. */
+  const markets = (await client.market.getAllMarkets()).filter((m) => {
+    const pid = Number(m.productId)
+    return pid !== QUOTE_PRODUCT_ID && pid !== NLP_PRODUCT_ID
+  })
   const pids = markets.map((m) => m.productId)
 
   const symbolsById = {}
@@ -91,26 +96,54 @@ async function fetchCommandCenterRows(getNadoClient) {
     }
   }
 
-  const rows = markets.map((m) => {
-    const pid = Number(m.productId)
-    const sym = symbolsById[String(pid)] ?? `Product ${pid}`
-    const kind = m.type === ProductEngineType.PERP ? 'perp' : 'spot'
-    let price = null
-    if (kind === 'perp') {
-      const p = perpPrices[pid] ?? perpPrices[String(pid)]
-      if (p?.markPrice != null) {
-        const bn = p.markPrice
-        price = typeof bn.toNumber === 'function' ? bn.toNumber() : Number(bn)
-      }
-    } else {
-      const o = oracleById[pid]
-      if (o != null) {
-        price = typeof o.toNumber === 'function' ? o.toNumber() : Number(o)
+  /** productId → 24h quote volume + change (indexer v2 tickers) */
+  const tickerByProductId = {}
+  try {
+    const ix = client.context?.indexerClient
+    if (typeof ix?.getV2Tickers === 'function') {
+      const tickers = await ix.getV2Tickers({ edge: true })
+      for (const t of Object.values(tickers ?? {})) {
+        if (t?.productId == null) continue
+        tickerByProductId[Number(t.productId)] = t
       }
     }
-    const tag = classifyMarketTag(sym, kind)
-    return { productId: pid, symbol: sym, kind, price, tag }
-  })
+  } catch {
+    /* optional */
+  }
+
+  const rows = markets
+    .map((m) => {
+      const pid = Number(m.productId)
+      const sym = symbolsById[String(pid)] ?? `Product ${pid}`
+      const kind = m.type === ProductEngineType.PERP ? 'perp' : 'spot'
+      let price = null
+      if (kind === 'perp') {
+        const p = perpPrices[pid] ?? perpPrices[String(pid)]
+        if (p?.markPrice != null) {
+          const bn = p.markPrice
+          price = typeof bn.toNumber === 'function' ? bn.toNumber() : Number(bn)
+        }
+      } else {
+        const o = oracleById[pid]
+        if (o != null) {
+          price = typeof o.toNumber === 'function' ? o.toNumber() : Number(o)
+        }
+      }
+      const tag = classifyMarketTag(sym, kind)
+      const tk = tickerByProductId[pid]
+      const quoteVolume = tk?.quoteVolume
+      const change24h = tk?.priceChangePercent24h
+      return {
+        productId: pid,
+        symbol: sym,
+        kind,
+        price,
+        tag,
+        quoteVolume: typeof quoteVolume === 'number' && Number.isFinite(quoteVolume) ? quoteVolume : null,
+        change24h: typeof change24h === 'number' && Number.isFinite(change24h) ? change24h : null,
+      }
+    })
+    .filter((r) => r.price != null && Number.isFinite(r.price))
 
   rows.sort((a, b) => a.symbol.localeCompare(b.symbol))
   return rows
@@ -128,6 +161,89 @@ function formatPrice(n) {
   return new Intl.NumberFormat('en-US', opts).format(n)
 }
 
+/** 24h volume in quote (USDT0) from indexer v2 tickers */
+function formatQuoteVolume(n) {
+  if (n == null || !Number.isFinite(n)) return '—'
+  const abs = Math.abs(n)
+  if (abs >= 1e12) return `${(n / 1e12).toFixed(2)}T`
+  if (abs >= 1e9) return `${(n / 1e9).toFixed(2)}B`
+  if (abs >= 1e6) return `${(n / 1e6).toFixed(2)}M`
+  if (abs >= 1e3) return `${(n / 1e3).toFixed(2)}K`
+  return new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(n)
+}
+
+/** Custom listbox — Nado-like dark panel, not OS native select. */
+function NadoCategorySelect({ value, onChange, options, menuOpen, onMenuOpenChange }) {
+  const rootRef = useRef(null)
+  const listId = 'nado-category-listbox'
+
+  const selected = options.find((o) => o.id === value) ?? options[0]
+
+  useEffect(() => {
+    if (!menuOpen) return undefined
+    const onDoc = (e) => {
+      if (rootRef.current && !rootRef.current.contains(e.target)) onMenuOpenChange(false)
+    }
+    document.addEventListener('mousedown', onDoc)
+    return () => document.removeEventListener('mousedown', onDoc)
+  }, [menuOpen, onMenuOpenChange])
+
+  return (
+    <div ref={rootRef} className="relative min-w-0 flex-1">
+      <button
+        type="button"
+        id="market-category-filter"
+        aria-haspopup="listbox"
+        aria-expanded={menuOpen}
+        aria-controls={listId}
+        onClick={() => onMenuOpenChange(!menuOpen)}
+        className="flex w-full items-center justify-between gap-2 rounded-lg border border-white/[0.1] bg-[linear-gradient(180deg,rgba(19,21,44,0.9),rgba(9,11,26,0.92))] px-3 py-2 text-left text-sm font-medium text-slate-100 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] backdrop-blur-sm transition hover:border-violet-400/25 hover:bg-[rgba(22,24,48,0.95)] focus:outline-none focus:ring-2 focus:ring-violet-500/35"
+      >
+        <span className="min-w-0 truncate">{selected?.label ?? '—'}</span>
+        <ChevronDown
+          className={`h-4 w-4 shrink-0 text-violet-400/90 transition-transform duration-200 ${
+            menuOpen ? 'rotate-180' : ''
+          }`}
+          strokeWidth={2}
+          aria-hidden
+        />
+      </button>
+      {menuOpen && (
+        <ul
+          id={listId}
+          role="listbox"
+          aria-labelledby="market-category-filter"
+          className="absolute left-0 right-0 top-[calc(100%+0.25rem)] z-[120] max-h-60 overflow-y-auto overflow-x-hidden rounded-lg border border-white/[0.1] bg-[rgba(10,12,28,0.98)] py-1 shadow-[0_16px_40px_-12px_rgba(0,0,0,0.75)] ring-1 ring-inset ring-white/[0.04] backdrop-blur-md"
+        >
+          {options.map((c) => {
+            const isSel = value === c.id
+            return (
+              <li key={c.id} role="presentation">
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={isSel}
+                  onClick={() => {
+                    onChange(c.id)
+                    onMenuOpenChange(false)
+                  }}
+                  className={`flex w-full items-center px-3 py-2 text-left text-sm transition ${
+                    isSel
+                      ? 'bg-violet-500/20 font-medium text-violet-100'
+                      : 'text-slate-300 hover:bg-white/[0.06] hover:text-slate-100'
+                  }`}
+                >
+                  {c.label}
+                </button>
+              </li>
+            )
+          })}
+        </ul>
+      )}
+    </div>
+  )
+}
+
 /**
  * Modal inspired by Nado "Command Center": search markets, filter by category, open Nado trade.
  */
@@ -140,6 +256,7 @@ export default function MarketCommandCenterModal({
 }) {
   const [query, setQuery] = useState('')
   const [category, setCategory] = useState('all')
+  const [categoryMenuOpen, setCategoryMenuOpen] = useState(false)
   const inputRef = useRef(null)
 
   const { data: rows = [], isLoading, isError, error } = useQuery({
@@ -153,6 +270,7 @@ export default function MarketCommandCenterModal({
     if (!open) {
       setQuery('')
       setCategory('all')
+      setCategoryMenuOpen(false)
       return
     }
     const t = requestAnimationFrame(() => inputRef.current?.focus())
@@ -162,14 +280,17 @@ export default function MarketCommandCenterModal({
   useEffect(() => {
     if (!open) return undefined
     const onKey = (e) => {
-      if (e.key === 'Escape') {
-        e.preventDefault()
+      if (e.key !== 'Escape') return
+      e.preventDefault()
+      if (categoryMenuOpen) {
+        setCategoryMenuOpen(false)
+      } else {
         onClose()
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [open, onClose])
+  }, [open, onClose, categoryMenuOpen])
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -226,30 +347,17 @@ export default function MarketCommandCenterModal({
               />
             </div>
 
-            <div
-              role="radiogroup"
-              aria-label="Market category"
-              className="-mx-0.5 flex gap-1 overflow-x-auto pb-0.5 no-scrollbar"
-            >
-              {CATEGORIES.map((c) => {
-                const active = category === c.id
-                return (
-                  <button
-                    key={c.id}
-                    type="button"
-                    role="radio"
-                    aria-checked={active}
-                    onClick={() => setCategory(c.id)}
-                    className={`shrink-0 rounded-md px-2.5 py-2 text-xs font-medium transition ${
-                      active
-                        ? 'bg-violet-500/25 text-violet-100'
-                        : 'bg-white/[0.06] text-slate-500 hover:bg-white/[0.1] hover:text-slate-300'
-                    }`}
-                  >
-                    {c.label}
-                  </button>
-                )
-              })}
+            <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-3">
+              <span className="shrink-0 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                Category
+              </span>
+              <NadoCategorySelect
+                value={category}
+                onChange={setCategory}
+                options={CATEGORIES}
+                menuOpen={categoryMenuOpen}
+                onMenuOpenChange={setCategoryMenuOpen}
+              />
             </div>
           </div>
 
@@ -295,10 +403,19 @@ export default function MarketCommandCenterModal({
                     </div>
                     <div className="min-w-0 flex-1 sm:max-w-[11rem]">
                       <div className="text-xs tabular-nums text-slate-100">{formatPrice(r.price)}</div>
-                      <div className="text-[10px] text-slate-500">—</div>
+                      {r.change24h != null && (
+                        <div
+                          className={`text-[10px] tabular-nums ${
+                            r.change24h >= 0 ? 'text-emerald-400/90' : 'text-rose-400/90'
+                          }`}
+                        >
+                          {r.change24h >= 0 ? '+' : ''}
+                          {r.change24h.toFixed(2)}% <span className="text-slate-500">24h</span>
+                        </div>
+                      )}
                     </div>
-                    <div className="hidden w-28 shrink-0 text-right text-xs tabular-nums text-slate-400 sm:block">
-                      —
+                    <div className="hidden w-28 shrink-0 text-right text-xs tabular-nums text-slate-300 sm:block">
+                      {formatQuoteVolume(r.quoteVolume)}
                     </div>
                     <div className="ml-auto hidden w-16 shrink-0 text-right lg:block">
                       {href ? (

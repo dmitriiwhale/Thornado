@@ -24,6 +24,29 @@ import { usePortfolioData } from '../hooks/usePortfolioData.js'
 import { useNadoLinkedSigner } from '../context/NadoLinkedSignerContext.jsx'
 import { useNadoNetwork } from '../context/NadoNetworkContext.jsx'
 import NadoPortfolioView from '../components/portfolio/NadoPortfolioView.jsx'
+import { inkMainnet, inkTestnet } from '../wagmi.config.js'
+
+/** Pill for Ink testnet vs mainnet; unknown chains get a neutral badge (still shows id beside). */
+function WalletNetworkBadge({ chainId }) {
+  if (chainId == null) {
+    return <span className="text-slate-500">—</span>
+  }
+  const isInkMain = chainId === inkMainnet.id
+  const isInkTest = chainId === inkTestnet.id
+  const label = isInkMain ? 'Mainnet' : isInkTest ? 'Testnet' : 'Other chain'
+  const pillClass = isInkMain
+    ? 'bg-emerald-500/15 text-emerald-200/95'
+    : isInkTest
+      ? 'bg-amber-500/15 text-amber-100/95'
+      : 'bg-slate-500/25 text-slate-200/90'
+  return (
+    <span
+      className={`inline-flex rounded-md px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${pillClass}`}
+    >
+      {label}
+    </span>
+  )
+}
 
 /** Sidebar: show 0x1234…abcd; click copies full address (clipboard). */
 function AddressAbbr({ address, className = '' }) {
@@ -358,10 +381,6 @@ export default function Account() {
                           >
                             {isMainnetEnv ? 'Mainnet' : 'Testnet'}
                           </span>
-                          <span className="text-[11px] text-slate-400">{activeChain.name}</span>
-                          <span className="font-mono text-[10px] text-slate-500 tabular-nums">
-                            {activeChain.id}
-                          </span>
                         </div>
                       </div>
                     </div>
@@ -444,24 +463,38 @@ export default function Account() {
                   <AddressAbbr address={address} />
                 </div>
                 <div className="text-slate-500">
-                  <span className="text-slate-400">Network:</span> {chainId ?? '—'}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-slate-400">Network:</span>
+                    <WalletNetworkBadge chainId={chainId} />
+                    {chainId != null &&
+                      chainId !== inkMainnet.id &&
+                      chainId !== inkTestnet.id && (
+                        <span className="font-mono text-[10px] text-slate-500 tabular-nums">
+                          {chainId}
+                        </span>
+                      )}
+                  </div>
                   {onWrongChain && (
-                    <>
-                      {' '}
-                      <span className="text-amber-200/90">
-                        — need {activeChain.name}{' '}
-                        <span className="font-mono">({activeChain.id})</span>
+                    <p className="mt-1.5 text-amber-200/90">
+                      Wrong chain — switch to{' '}
+                      <span
+                        className={`inline-flex rounded-md px-2 py-0.5 align-middle text-[10px] font-semibold uppercase tracking-wide ${
+                          isMainnetEnv
+                            ? 'bg-emerald-500/15 text-emerald-200/95'
+                            : 'bg-amber-500/15 text-amber-100/95'
+                        }`}
+                      >
+                        {isMainnetEnv ? 'Mainnet' : 'Testnet'}
                       </span>
-                    </>
+                      .
+                    </p>
                   )}
                 </div>
                 {onWrongChain && chainId === ETHEREUM_SEPOLIA_CHAIN_ID && (
                   <p className="text-xs leading-relaxed text-amber-100/90">
                     You are on <span className="font-medium">Ethereum Sepolia</span> (L1 testnet).
-                    THORNado / Nado use{' '}
-                    <span className="font-medium">Ink Sepolia</span>, a different network (chain{' '}
-                    {activeChain.id}). Getting ETH from an Ethereum Sepolia faucet does not fund
-                    Ink Sepolia — switch here, then use an{' '}
+                    THORNado / Nado use a different Ink-based network. Getting ETH from an Ethereum
+                    Sepolia faucet does not fund that network — switch here, then use an{' '}
                     <span className="font-medium">Ink</span> testnet faucet if you still need gas.
                   </p>
                 )}
@@ -472,7 +505,11 @@ export default function Account() {
                     onClick={() => switchChain({ chainId: activeChain.id })}
                     className="rounded-lg border border-amber-400/40 bg-amber-400/10 px-2 py-1.5 text-xs font-medium text-amber-100"
                   >
-                    {switchPending ? 'Switching…' : `Switch to ${activeChain.name}`}
+                    {switchPending
+                      ? 'Switching…'
+                      : isMainnetEnv
+                        ? 'Switch to mainnet'
+                        : 'Switch to testnet'}
                   </button>
                 )}
                 {!session && (
