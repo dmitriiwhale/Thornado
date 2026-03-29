@@ -23,6 +23,31 @@ function baseTicker(market) {
   return s.split('/')[0]?.trim() || '—'
 }
 
+function marginCell(p) {
+  const m = p.margin
+  return m != null && Number.isFinite(Number(m)) ? fmt.currency(m) : '—'
+}
+
+/** Net funding paid/received in USD (indexer snapshot: cumulative + unrealized). */
+function fundingCell(p) {
+  const v = p.fundingUsd
+  if (v == null || !Number.isFinite(v)) return '—'
+  return fmt.signedCurrency(v)
+}
+
+function leverageCell(p) {
+  const v = Number(p?.leverage)
+  if (!Number.isFinite(v) || Math.abs(v) <= 1e-12) return '—'
+  return `${fmt.number(v, 2)}x`
+}
+
+function roeCell(p) {
+  const pnl = Number(p?.pnl)
+  const margin = Number(p?.roeMargin)
+  if (!Number.isFinite(pnl) || !Number.isFinite(margin) || Math.abs(margin) <= 1e-12) return '—'
+  return fmt.percent((pnl / margin) * 100)
+}
+
 function SortHead({ children }) {
   return (
     <div className="flex cursor-default items-center gap-1 whitespace-nowrap text-[11px] font-semibold uppercase tracking-wider text-slate-500">
@@ -83,6 +108,9 @@ export default function NadoPositionsTable({
       <div className="flex min-w-[6.5rem] flex-1 items-center px-1">
         <SortHead>Value</SortHead>
       </div>
+      <div className="flex min-w-[5.5rem] flex-1 items-center px-1">
+        <DashedHead>Leverage</DashedHead>
+      </div>
       <div className="flex min-w-[6.5rem] flex-1 items-center px-1">
         <DashedHead>Entry Price</DashedHead>
       </div>
@@ -98,7 +126,10 @@ export default function NadoPositionsTable({
       <div className="flex min-w-[5.5rem] flex-1 items-center px-1">
         <DashedHead>Margin</DashedHead>
       </div>
-      <div className="flex min-w-[6rem] flex-1 items-center pr-3 pl-1">
+      <div
+        className="flex min-w-[6rem] flex-1 items-center pr-3 pl-1"
+        title="Net funding in USD (indexer account snapshot, or sum of recent payment ticks)"
+      >
         <SortHead>Funding</SortHead>
       </div>
     </div>
@@ -150,7 +181,9 @@ export default function NadoPositionsTable({
                         {sideShort}
                       </span>
                     </div>
-                    <span className="text-[11px] capitalize text-slate-500">Cross</span>
+                    <span className="text-[11px] capitalize text-slate-500">
+                      {p.isolated ? 'Isolated' : 'Cross'}
+                    </span>
                   </div>
                 </a>
               ) : (
@@ -180,6 +213,7 @@ export default function NadoPositionsTable({
                 ? fmt.number(p.entry)
                 : '—'
             const valueDisp = p.notional != null ? fmt.currency(p.notional) : '—'
+            const leverageDisp = leverageCell(p)
             const sizeDisp =
               p.size != null ? (
                 <span className="flex items-baseline gap-x-1">
@@ -201,6 +235,9 @@ export default function NadoPositionsTable({
                 </div>
                 <div className="flex min-w-[6.5rem] flex-1 items-center px-1 text-xs tabular-nums text-slate-200">
                   {valueDisp}
+                </div>
+                <div className="flex min-w-[5.5rem] flex-1 items-center px-1 text-xs tabular-nums text-slate-200">
+                  {leverageDisp}
                 </div>
                 <div className="flex min-w-[6.5rem] flex-1 items-center px-1 text-xs tabular-nums text-slate-200">
                   {entryDisp}
@@ -235,7 +272,7 @@ export default function NadoPositionsTable({
                     className={`flex min-w-0 flex-col gap-0.5 text-xs tabular-nums ${pnlToneClass(p.pnl)}`}
                   >
                     <span>{fmt.signedCurrency(p.pnl)}</span>
-                    <span className="text-[10px] text-slate-500">—</span>
+                    <span className="text-[10px] text-slate-500">{roeCell(p)}</span>
                   </div>
                   <button
                     type="button"
@@ -249,11 +286,11 @@ export default function NadoPositionsTable({
                     <Share2 className="h-3.5 w-3.5" aria-hidden />
                   </button>
                 </div>
-                <div className="flex min-w-[5.5rem] flex-1 items-center px-1 text-xs tabular-nums text-slate-500">
-                  —
+                <div className="flex min-w-[5.5rem] flex-1 items-center px-1 text-xs tabular-nums text-slate-200">
+                  {marginCell(p)}
                 </div>
-                <div className="flex min-w-[6rem] flex-1 items-center pr-3 pl-1 text-xs tabular-nums text-slate-500">
-                  —
+                <div className="flex min-w-[6rem] flex-1 items-center pr-3 pl-1 text-xs tabular-nums text-slate-200">
+                  {fundingCell(p)}
                 </div>
               </div>
             )

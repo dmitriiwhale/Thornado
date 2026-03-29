@@ -22,7 +22,7 @@ function pickChecksumAddr(v) {
   }
 }
 
-function toBigNumberish(v) {
+export function toBigNumberish(v) {
   if (v == null) return null
   try {
     const s = typeof v === 'object' && typeof v.toString === 'function' ? v.toString() : String(v)
@@ -34,7 +34,7 @@ function toBigNumberish(v) {
 }
 
 /** Convert x18 integer (or already-decimal BN) to JS number for display. */
-function fromX18(bn) {
+export function fromX18(bn) {
   const b = toBigNumberish(bn)
   if (!b) return null
   const d = b.dividedBy(X18)
@@ -94,7 +94,7 @@ export function deriveUnifiedMargin(summary) {
   }
 }
 
-function toNumber(value) {
+export function toNumber(value) {
   if (value == null) return null
   if (typeof value === 'number') return Number.isFinite(value) ? value : null
   if (typeof value === 'string') {
@@ -401,6 +401,8 @@ export function adaptPositions(payload) {
     const mark = pick(row, ['markPrice', 'price', 'lastPrice'])
     const pnl = pick(row, ['unrealizedPnl', 'pnl', 'uPnl'])
     const notional = pick(row, ['notionalUsd', 'notional', 'valueUsd'])
+    const margin = pick(row, ['margin', 'marginUsd', 'initialMargin', 'initial_margin'], null)
+    const leverage = pick(row, ['leverage', 'effectiveLeverage'], null)
     return {
       id: `${market}-${idx}`,
       market: String(market),
@@ -412,6 +414,8 @@ export function adaptPositions(payload) {
       mark,
       pnl,
       notional,
+      margin,
+      leverage,
     }
   })
 }
@@ -422,7 +426,7 @@ export function adaptPositions(payload) {
  * - type = PERP
  * - amount = base position amount (x18)
  * - oraclePrice on the product (already decimals, not x18)
- * - vQuoteBalance (x18) – we use it as a proxy for unrealized pnl/quote leg.
+ * - vQuoteBalance (x18) – with amount defines implied avg entry as -vQuoteBalance/amount (see entryPriceFromPerpAmountAndVQuote).
  *
  * Side follows engine convention: **negative** base `amount` (x18) = short, **positive** = long
  * (same as `pickRiskWeights`). Prefer `BigNumber` sign over float `>= 0` to avoid mis-labeling.
@@ -441,11 +445,297 @@ function perpSideFromRawAmount(rawAmt) {
 }
 
 /**
- * From indexer `getMultiSubaccountSnapshots`: per-product `netEntryCumulative` (x18) /
- * |postBalance.amount| (x18) = average entry price in quote per base.
- * Prefer cross-margin rows (`isolated === false`) when the same product appears twice.
+ * Implied average entry from engine balance: with uPnL = amount * mark + vQuoteBalance,
+ * entry = -vQuoteBalance / amount (same convention as calcIndexerPerpBalanceValue in @nadohq/indexer-client).
+ * Both values are x18 fixed-point from the engine.
  */
-export function extractNetEntryPriceByProductId(snapshotResponse) {
+export function entryPriceFromPerpAmountAndVQuote(amountRaw, vQuoteRaw) {
+  const amt = toBigNumberish(amountRaw)
+  const vq = toBigNumberish(vQuoteRaw)
+  if (!amt || !vq || amt.isNaN() || vq.isNaN() || amt.isZero()) return null
+  const p = vq.negated().dividedBy(amt)
+  const n = p.toNumber()
+  if (!Number.isFinite(n) || !(Math.abs(n) > 0)) return null
+  return Math.abs(n)
+}
+
+function trackedVarTotal(tv, cumulativeKey, unrealizedKey) {
+  const c = toBigNumberish(tv?.[cumulativeKey])
+  const u = toBigNumberish(tv?.[unrealizedKey])
+  if ((c == null || c.isNaN()) && (u == null || u.isNaN())) return null
+  let sum = new BigNumber(0)
+  if (c != null && !c.isNaN()) sum = sum.plus(c)
+  if (u != null && !u.isNaN()) sum = sum.plus(u)
+  return sum
+}
+
+function perpPnlUsdFromAmountMarkAndQuote(amountRaw, markPrice, quoteRaw) {
+  const amount = fromX18(amountRaw)
+  const quote = fromX18(quoteRaw)
+  const mark = toNumber(markPrice)
+  if (amount == null || quote == null || mark == null) return null
+  const pnl = amount * mark + quote
+  return Number.isFinite(pnl) ? pnl : null
+}
+
+export function perpPositionKey(productId, isolated = false) {
+  return `${String(productId)}:${isolated ? 'isolated' : 'cross'}`
+}
+
+export function entryPriceFromNetEntryUnrealized(amountRaw, netEntryUnrealizedRaw) {
+  const amt = toBigNumberish(amountRaw)
+  const netEntry = toBigNumberish(netEntryUnrealizedRaw)
+  if (!amt || !netEntry || amt.isNaN() || netEntry.isNaN() || amt.isZero()) return null
+  const price = netEntry.dividedBy(amt).abs()
+  const n = price.toNumber()
+  return Number.isFinite(n) ? n : null
+}
+
+export function calcPerpBalanceValueUsd(amountRaw, oraclePrice, vQuoteRaw) {
+  return perpPnlUsdFromAmountMarkAndQuote(amountRaw, oraclePrice, vQuoteRaw)
+}
+
+export function calcUnrealizedPnlFromSnapshotEvent(snapshotEvent, exitPrice) {
+  const amount = snapshotEvent?.state?.postBalance?.amount
+  const netEntry = snapshotEvent?.trackedVars?.netEntryUnrealized
+  const px = toNumber(exitPrice)
+  if (amount == null || netEntry == null || px == null) return null
+  const pnl = perpPnlUsdFromAmountMarkAndQuote(amount, px, toBigNumberish(netEntry)?.negated())
+  return pnl
+}
+
+export function calcRoeDenominatorUsdFromSnapshotEvent(snapshotEvent) {
+  const netEntry = toBigNumberish(snapshotEvent?.trackedVars?.netEntryUnrealized)
+  const longWeightInitial = toBigNumberish(snapshotEvent?.state?.market?.product?.longWeightInitial)
+  if (!netEntry || !longWeightInitial || netEntry.isNaN() || longWeightInitial.isNaN()) return null
+  const denominator = netEntry.abs().multipliedBy(new BigNumber(1).minus(longWeightInitial))
+  const n = fromX18(denominator)
+  return n != null && Number.isFinite(n) ? n : null
+}
+
+export function calcEstimatedLiqPriceFromBalance(row, maintenanceHealthRaw) {
+  const maintHealth = toBigNumberish(maintenanceHealthRaw)
+  const amount = toBigNumberish(row?.amount)
+  const oraclePrice = toBigNumberish(row?.oraclePrice)
+  const longWeightMaintenance = toBigNumberish(row?.longWeightMaintenance)
+  const shortWeightMaintenance = toBigNumberish(row?.shortWeightMaintenance)
+  if (
+    !maintHealth ||
+    !amount ||
+    !oraclePrice ||
+    !longWeightMaintenance ||
+    !shortWeightMaintenance ||
+    maintHealth.isNaN() ||
+    amount.isNaN() ||
+    oraclePrice.isNaN() ||
+    longWeightMaintenance.isNaN() ||
+    shortWeightMaintenance.isNaN() ||
+    amount.isZero()
+  ) {
+    return null
+  }
+
+  if (amount.isPositive()) {
+    const px = oraclePrice.minus(maintHealth.dividedBy(amount).dividedBy(longWeightMaintenance))
+    const n = px.toNumber()
+    return Number.isFinite(n) && n > 0 ? n : null
+  }
+
+  const px = oraclePrice.plus(
+    maintHealth.dividedBy(amount.abs()).dividedBy(shortWeightMaintenance),
+  )
+  const n = px.toNumber()
+  const oracle = oraclePrice.toNumber()
+  if (!Number.isFinite(n) || !Number.isFinite(oracle)) return null
+  return n < oracle * 10 ? n : null
+}
+
+export function pickEstimatedExitPrice(isLong, latestMarketPrice, fallbackOraclePrice) {
+  const bid = toNumber(latestMarketPrice?.bid)
+  const ask = toNumber(latestMarketPrice?.ask)
+  const safeBid = Number.isFinite(bid) && bid > 0 ? bid : null
+  const safeAsk =
+    Number.isFinite(ask) && ask > 0 && ask < 1e30 ? ask : null
+  if (isLong) return safeBid ?? toNumber(fallbackOraclePrice)
+  return safeAsk ?? toNumber(fallbackOraclePrice)
+}
+
+export function adaptCanonicalPerpPositions(
+  crossPerpBalances,
+  isolatedPositions,
+  symbolsByProductId,
+) {
+  const crossRows = unwrapArray(crossPerpBalances)
+    .filter((r) => engineBalanceKind(r) === 'perp')
+    .map((row, idx) => {
+      const productId = row.productId ?? row.product_id ?? null
+      const symbol =
+        productId != null && symbolsByProductId
+          ? symbolsByProductId[String(productId)]
+          : null
+      const rawAmt = pick(row, ['amount', 'total', 'balance', 'equity'], null)
+      const size = fromX18(toBigNumberish(rawAmt)?.abs())
+      const oraclePrice = toNumber(row.oraclePrice)
+      const notional =
+        size != null && oraclePrice != null ? Math.abs(size * oraclePrice) : null
+      return {
+        id: `cross-${productId ?? idx}`,
+        productId,
+        market: String(symbol ?? (productId != null ? `Perp #${productId}` : `Perp ${idx + 1}`)),
+        side: perpSideFromRawAmount(rawAmt),
+        size,
+        amount: rawAmt,
+        oraclePrice,
+        vQuoteBalance: row?.vQuoteBalance ?? null,
+        notional,
+        isolated: false,
+        isoSubaccountName: null,
+        row,
+      }
+    })
+
+  const isoRows = unwrapArray(isolatedPositions).map((position, idx) => {
+    const base = position?.baseBalance
+    const quote = position?.quoteBalance
+    const productId = base?.productId ?? null
+    const symbol =
+      productId != null && symbolsByProductId
+        ? symbolsByProductId[String(productId)]
+        : null
+    const rawAmt = base?.amount ?? null
+    const size = fromX18(toBigNumberish(rawAmt)?.abs())
+    const oraclePrice = toNumber(base?.oraclePrice)
+    const notional =
+      size != null && oraclePrice != null ? Math.abs(size * oraclePrice) : null
+    return {
+      id: `isolated-${productId ?? idx}-${position?.subaccount?.subaccountName ?? idx}`,
+      productId,
+      market: String(symbol ?? (productId != null ? `Perp #${productId}` : `Perp ${idx + 1}`)),
+      side: perpSideFromRawAmount(rawAmt),
+      size,
+      amount: rawAmt,
+      oraclePrice,
+      vQuoteBalance: base?.vQuoteBalance ?? null,
+      notional,
+      isolated: true,
+      isoSubaccountName: position?.subaccount?.subaccountName ?? null,
+      isoQuoteBalance: quote?.amount ?? null,
+      isoHealths: position?.healths ?? null,
+      row: base,
+    }
+  })
+
+  return [...crossRows, ...isoRows]
+}
+
+/** productId string -> implied entry from `getSubaccountSummary` perp rows (for merging into API positions). */
+export function buildEntryPriceByProductIdFromBalances(payload) {
+  const out = {}
+  const rows = unwrapArray(payload).filter((r) => engineBalanceKind(r) === 'perp')
+  for (const row of rows) {
+    const pid = row.productId ?? row.product_id
+    if (pid == null) continue
+    const rawAmt = pick(row, ['amount', 'total', 'balance', 'equity'], null)
+    const e = entryPriceFromPerpAmountAndVQuote(rawAmt, row?.vQuoteBalance)
+    if (e != null && Number.isFinite(e)) out[String(pid)] = e
+  }
+  return out
+}
+
+/**
+ * Same formula as {@link entryPriceFromPerpAmountAndVQuote} on indexer `postBalance` from
+ * `getMultiSubaccountSnapshots` — aligns with Nado UI, which is indexer-backed (engine can differ slightly).
+ * Prefer cross (`isolated === false`) when the same product appears twice.
+ */
+/** Initial/maintenance health contribution (x18) → USD for perp row margin display. */
+function marginUsdFromEnginePerpRow(row) {
+  const hc = row?.healthContributions
+  const initialHealth = toBigNumberish(hc?.initial)
+  if (!initialHealth || initialHealth.isNaN()) return { initial: null, maintenance: null }
+  const balanceValue = toBigNumberish(row?.amount)
+    ?.multipliedBy(toBigNumberish(row?.oraclePrice) ?? new BigNumber(0))
+    .plus(toBigNumberish(row?.vQuoteBalance) ?? new BigNumber(0))
+  if (!balanceValue || balanceValue.isNaN()) return { initial: null, maintenance: null }
+  const marginUsed = fromX18(BigNumber.maximum(0, balanceValue.minus(initialHealth)))
+  return {
+    initial: marginUsed != null && Number.isFinite(marginUsed) ? marginUsed : null,
+    maintenance: null,
+  }
+}
+
+export function buildMarginByProductIdFromBalances(payload) {
+  const out = {}
+  for (const row of unwrapArray(payload).filter((r) => engineBalanceKind(r) === 'perp')) {
+    const pid = row.productId ?? row.product_id
+    if (pid == null) continue
+    const m = marginUsdFromEnginePerpRow(row)
+    if (m.initial != null || m.maintenance != null) out[String(pid)] = m
+  }
+  return out
+}
+
+/**
+ * Net funding PnL in quote (USD) from indexer account snapshot: cumulative + unrealized (x18).
+ * Prefer cross-margin rows when the same product appears twice.
+ */
+export function extractNetFundingUsdByProductIdFromIndexerSnapshots(snapshotResponse) {
+  const out = {}
+  const snapshots = snapshotResponse?.snapshots
+  if (!snapshots || typeof snapshots !== 'object') return out
+
+  /** @type {Map<string, { usd: number, isolated: boolean }>} */
+  const best = new Map()
+
+  for (const subHex of Object.keys(snapshots)) {
+    const byTs = snapshots[subHex]
+    if (!byTs || typeof byTs !== 'object') continue
+    for (const ts of Object.keys(byTs)) {
+      const shot = byTs[ts]
+      const balances = shot?.balances
+      if (!Array.isArray(balances)) continue
+      for (const ev of balances) {
+        if (ev?.state?.type !== 1) continue
+        const pid = ev.productId
+        if (pid == null) continue
+        const tv = ev.trackedVars
+        if (!tv) continue
+        const c = toBigNumberish(tv.netFundingCumulative)
+        const u = toBigNumberish(tv.netFundingUnrealized)
+        if ((c == null || c.isNaN()) && (u == null || u.isNaN())) continue
+        let sum = new BigNumber(0)
+        if (c != null && !c.isNaN()) sum = sum.plus(c)
+        if (u != null && !u.isNaN()) sum = sum.plus(u)
+        const usd = fromX18(sum)
+        if (usd == null || !Number.isFinite(usd)) continue
+        const key = String(pid)
+        const isIso = Boolean(ev.isolated)
+        const prev = best.get(key)
+        if (!prev) best.set(key, { usd, isolated: isIso })
+        else if (prev.isolated && !isIso) best.set(key, { usd, isolated: false })
+      }
+    }
+  }
+
+  for (const [k, v] of best) out[k] = v.usd
+  return out
+}
+
+/** Sum of adapted funding `payment` amounts per productId (partial window — fallback only). */
+export function aggregateFundingPaymentsUsdByProductId(adaptedFundingRows) {
+  const sums = {}
+  if (!Array.isArray(adaptedFundingRows)) return sums
+  for (const r of adaptedFundingRows) {
+    const pid = r.productId
+    if (pid == null || r.payment == null) continue
+    const k = String(pid)
+    const n = Number(r.payment)
+    if (!Number.isFinite(n)) continue
+    sums[k] = (sums[k] ?? 0) + n
+  }
+  return sums
+}
+
+export function extractEntryPriceByProductIdFromIndexerSnapshots(snapshotResponse) {
   const out = {}
   const snapshots = snapshotResponse?.snapshots
   if (!snapshots || typeof snapshots !== 'object') return out
@@ -461,26 +751,18 @@ export function extractNetEntryPriceByProductId(snapshotResponse) {
       const balances = shot?.balances
       if (!Array.isArray(balances)) continue
       for (const ev of balances) {
-        // IndexerEvent: PERP state uses ProductEngineType.PERP === 1
         if (ev?.state?.type !== 1) continue
         const pid = ev.productId
         if (pid == null) continue
-        const postAmt = ev.state?.postBalance?.amount
-        const netC = ev.trackedVars?.netEntryCumulative
-        if (postAmt == null || netC == null) continue
-        const den =
-          typeof postAmt.abs === 'function' ? postAmt.abs() : new BigNumber(postAmt).abs()
-        if (!den || den.isZero()) continue
-        const priceBn = netC.dividedBy(den)
-        const n = priceBn.toNumber()
-        if (!Number.isFinite(n)) continue
-        const absPrice = Math.abs(n)
-        if (!(absPrice > 0)) continue
+        const post = ev.state?.postBalance
+        if (!post) continue
+        const e = entryPriceFromPerpAmountAndVQuote(post.amount, post.vQuoteBalance)
+        if (e == null || !Number.isFinite(e)) continue
         const key = String(pid)
         const isIso = Boolean(ev.isolated)
         const prev = best.get(key)
-        if (!prev) best.set(key, { price: absPrice, isolated: isIso })
-        else if (prev.isolated && !isIso) best.set(key, { price: absPrice, isolated: false })
+        if (!prev) best.set(key, { price: e, isolated: isIso })
+        else if (prev.isolated && !isIso) best.set(key, { price: e, isolated: false })
       }
     }
   }
@@ -490,11 +772,92 @@ export function extractNetEntryPriceByProductId(snapshotResponse) {
 }
 
 /**
+ * Current cross-margin perp metrics derived from the indexer snapshot, which exposes
+ * entry and funding legs separately. This matches Nado more closely than raw `vQuoteBalance`.
+ */
+export function extractPerpSnapshotMetricsByProductId(snapshotResponse) {
+  const out = {}
+  const snapshots = snapshotResponse?.snapshots
+  if (!snapshots || typeof snapshots !== 'object') return out
+
+  /** @type {Map<string, { isolated: boolean, entry: number | null, fundingUsd: number | null, pnl: number | null, mark: number | null }>} */
+  const best = new Map()
+
+  for (const subHex of Object.keys(snapshots)) {
+    const byTs = snapshots[subHex]
+    if (!byTs || typeof byTs !== 'object') continue
+    for (const ts of Object.keys(byTs)) {
+      const shot = byTs[ts]
+      const balances = shot?.balances
+      if (!Array.isArray(balances)) continue
+      for (const ev of balances) {
+        if (ev?.state?.type !== 1) continue
+        const pid = ev.productId
+        if (pid == null) continue
+        const post = ev.state?.postBalance
+        if (!post) continue
+        const fundingQuote = trackedVarTotal(
+          ev.trackedVars,
+          'netFundingCumulative',
+          'netFundingUnrealized',
+        )
+        const entry = entryPriceFromPerpAmountAndVQuote(post.amount, post.vQuoteBalance)
+        const fundingUsd = fundingQuote != null ? fromX18(fundingQuote) : null
+        const mark = toNumber(ev.state?.market?.oraclePrice)
+        const pnl =
+          post.vQuoteBalance != null
+            ? perpPnlUsdFromAmountMarkAndQuote(post.amount, mark, post.vQuoteBalance)
+            : null
+        const key = String(pid)
+        const isIso = Boolean(ev.isolated)
+        const prev = best.get(key)
+        const next = { isolated: isIso, entry, fundingUsd, pnl, mark }
+        if (!prev) best.set(key, next)
+        else if (prev.isolated && !isIso) best.set(key, next)
+      }
+    }
+  }
+
+  for (const [k, v] of best) {
+    out[k] = {
+      entry: v.entry,
+      fundingUsd: v.fundingUsd,
+      pnl: v.pnl,
+      mark: v.mark,
+    }
+  }
+  return out
+}
+
+export function extractPerpSnapshotByPositionKey(snapshotResponse) {
+  const out = {}
+  const snapshots = snapshotResponse?.snapshots
+  if (!snapshots || typeof snapshots !== 'object') return out
+
+  for (const subHex of Object.keys(snapshots)) {
+    const byTs = snapshots[subHex]
+    if (!byTs || typeof byTs !== 'object') continue
+    for (const ts of Object.keys(byTs)) {
+      const shot = byTs[ts]
+      const balances = shot?.balances
+      if (!Array.isArray(balances)) continue
+      for (const ev of balances) {
+        if (ev?.state?.type !== 1) continue
+        const pid = ev.productId
+        if (pid == null) continue
+        out[perpPositionKey(pid, Boolean(ev.isolated))] = ev
+      }
+    }
+  }
+
+  return out
+}
+
+/**
  * @param {unknown} payload
  * @param {Record<string, string>} symbolsByProductId
- * @param {Record<string, number>} [netEntryByProductId] from {@link extractNetEntryPriceByProductId}
  */
-export function adaptPerpPositionsFromBalances(payload, symbolsByProductId, netEntryByProductId = {}) {
+export function adaptPerpPositionsFromBalances(payload, symbolsByProductId) {
   const rows = unwrapArray(payload)
   return rows
     .filter((r) => engineBalanceKind(r) === 'perp')
@@ -525,16 +888,15 @@ export function adaptPerpPositionsFromBalances(payload, symbolsByProductId, netE
           ? oraclePx * size
           : null
 
-      const pnlProxy = row?.vQuoteBalance != null ? fromX18(row.vQuoteBalance) : null
+      const pnlProxy =
+        row?.vQuoteBalance != null
+          ? perpPnlUsdFromAmountMarkAndQuote(rawAmt, oraclePx, row.vQuoteBalance)
+          : null
       const tokenAddr = pickChecksumAddr(row.tokenAddr ?? row.token)
 
-      const pidKey = productId != null ? String(productId) : null
-      const fromIndexer =
-        pidKey != null && netEntryByProductId[pidKey] != null
-          ? netEntryByProductId[pidKey]
-          : null
-      const entryPrice =
-        fromIndexer != null && Number.isFinite(fromIndexer) ? fromIndexer : null
+      const rawAmtForEntry = pick(row, ['amount', 'total', 'balance', 'equity'], null)
+      const entryPrice = entryPriceFromPerpAmountAndVQuote(rawAmtForEntry, row?.vQuoteBalance)
+      const marginUsd = marginUsdFromEnginePerpRow(row)
 
       return {
         id: `perp-bal-${productId ?? idx}-${idx}`,
@@ -547,6 +909,8 @@ export function adaptPerpPositionsFromBalances(payload, symbolsByProductId, netE
         mark: oraclePx != null ? oraclePx : null,
         pnl: pnlProxy,
         notional,
+        margin: marginUsd.initial,
+        roeMargin: marginUsd.maintenance ?? marginUsd.initial,
       }
     })
 }
@@ -724,10 +1088,17 @@ export function adaptFundingPayments(rows, symbolsByProductId = {}) {
       (pid != null && symbolsByProductId[String(pid)]) ||
       (pid != null ? `Product ${pid}` : `Product ${idx + 1}`)
     const time = fundingTimestampMs(row)
+    const payBn = toBigNumberish(row.paymentAmount)
+    const paymentFromX18 = payBn != null && !payBn.isNaN() ? fromX18(payBn) : null
+    const payment =
+      paymentFromX18 != null && Number.isFinite(paymentFromX18)
+        ? paymentFromX18
+        : bnToNumber(row.paymentAmount)
     return {
       id: `${String(row.submissionIndex ?? 'f')}-${pid ?? idx}-${idx}`,
+      productId: pid ?? null,
       market: normalizePerpMarketLabel(String(sym)),
-      payment: bnToNumber(row.paymentAmount),
+      payment,
       annualRate: bnToNumber(row.annualPaymentRate),
       oraclePrice: bnToNumber(row.oraclePrice),
       isolated: Boolean(row.isolated),

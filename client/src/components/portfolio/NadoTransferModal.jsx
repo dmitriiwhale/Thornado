@@ -8,7 +8,7 @@ import {
   fetchQuoteProductSymbol,
   fetchQuoteSpotBalance,
   getSpotCollateralMeta,
-  parseHumanAmount,
+  parseHumanEngineAmount,
   pollUntilNSubmissionsIncreased,
   readNSubmissions,
 } from '../../lib/nadoSpotCollateral.js'
@@ -202,12 +202,12 @@ export default function NadoTransferModal({
     }
     let raw
     try {
-      raw = parseHumanAmount(trimmed, quoteMeta.decimals)
+      raw = parseHumanEngineAmount(trimmed)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Invalid amount')
       return
     }
-    if (fromBal?.raw != null && raw > fromBal.raw) {
+    if (fromBal?.engineX18 != null && raw > fromBal.engineX18) {
       setError('Amount exceeds available quote balance on the source subaccount.')
       return
     }

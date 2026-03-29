@@ -2,7 +2,15 @@ import { useMemo } from 'react'
 import { useQueries, useQuery } from '@tanstack/react-query'
 import {
   adaptPerpPositionsFromBalances,
-  extractNetEntryPriceByProductId,
+  adaptCanonicalPerpPositions,
+  aggregateFundingPaymentsUsdByProductId,
+  calcEstimatedLiqPriceFromBalance,
+  calcPerpBalanceValueUsd,
+  calcRoeDenominatorUsdFromSnapshotEvent,
+  calcUnrealizedPnlFromSnapshotEvent,
+  entryPriceFromNetEntryUnrealized,
+  extractPerpSnapshotMetricsByProductId,
+  extractPerpSnapshotByPositionKey,
   adaptSpotBalances,
   collectSpotTokenAddresses,
   adaptOrders,
@@ -13,8 +21,13 @@ import {
   adaptTrades,
   adaptFundingPayments,
   deriveUnifiedMargin,
+  fromX18,
   isNonZeroOpenPosition,
   normalizePerpMarketLabel,
+  perpPositionKey,
+  pickEstimatedExitPrice,
+  toBigNumberish,
+  toNumber,
 } from '../lib/portfolioAdapters.js'
 import { fetchErc20Symbols } from '../lib/erc20TokenSymbols.js'
 
@@ -22,6 +35,9 @@ function getInvoker(target, name) {
   const fn = target?.[name]
   return typeof fn === 'function' ? fn.bind(target) : null
 }
+
+const FUNDING_PAGE_LIMIT = 200
+const FUNDING_MAX_PAGES = 200
 
 async function callFirstAvailable(methods, args) {
   for (const candidate of methods) {
@@ -213,6 +229,7 @@ export function usePortfolioData({
     return map
   }, [symbolsQuery.data])
 
+  /** Indexer snapshot: same perp vQuote/amount semantics as Nado app (engine summary can differ slightly). */
   const accountSnapshotQuery = useQuery({
     queryKey: ['portfolio-account-snapshot', ownerAddress, chainEnv, subaccountName],
     enabled: Boolean(enabled && ownerAddress),
@@ -233,6 +250,67 @@ export function usePortfolioData({
     },
   })
 
+  const isolatedPositionsQuery = useQuery({
+    queryKey: ['portfolio-isolated-positions', ownerAddress, chainEnv, subaccountName],
+    enabled: Boolean(enabled && ownerAddress),
+    queryFn: async () => {
+      try {
+        const client = getNadoClient?.()
+        if (!client) return []
+        if (typeof client.subaccount?.getIsolatedPositions !== 'function') return []
+        const res = await client.subaccount.getIsolatedPositions({
+          subaccountOwner: ownerAddress,
+          subaccountName,
+        })
+        return Array.isArray(res?.isolatedPositions) ? res.isolatedPositions : []
+      } catch {
+        return []
+      }
+    },
+  })
+
+  const latestMarketPricesQuery = useQuery({
+    queryKey: [
+      'portfolio-latest-market-prices',
+      ownerAddress,
+      chainEnv,
+      subaccountName,
+      productIdsForSymbols.join(','),
+    ],
+    enabled: Boolean(enabled && ownerAddress && productIdsForSymbols.length > 0),
+    queryFn: async () => {
+      try {
+        const client = getNadoClient?.()
+        if (!client || typeof client.market?.getLatestMarketPrices !== 'function') return []
+        const res = await client.market.getLatestMarketPrices({ productIds: productIdsForSymbols })
+        return Array.isArray(res?.marketPrices) ? res.marketPrices : []
+      } catch {
+        return []
+      }
+    },
+  })
+
+  const latestOraclePricesQuery = useQuery({
+    queryKey: [
+      'portfolio-latest-oracle-prices',
+      ownerAddress,
+      chainEnv,
+      subaccountName,
+      productIdsForSymbols.join(','),
+    ],
+    enabled: Boolean(enabled && ownerAddress && productIdsForSymbols.length > 0),
+    queryFn: async () => {
+      try {
+        const client = getNadoClient?.()
+        const indexer = client?.context?.indexerClient
+        if (!indexer || typeof indexer.getOraclePrices !== 'function') return []
+        return await indexer.getOraclePrices({ productIds: productIdsForSymbols })
+      } catch {
+        return []
+      }
+    },
+  })
+
   const fundingQuery = useQuery({
     queryKey: [
       'portfolio-funding',
@@ -249,12 +327,30 @@ export function usePortfolioData({
       if (typeof indexer?.getPaginatedSubaccountInterestFundingPayments !== 'function') {
         return { fundingPayments: [], interestPayments: [] }
       }
-      return indexer.getPaginatedSubaccountInterestFundingPayments({
-        subaccountOwner: ownerAddress,
-        subaccountName,
-        productIds: productIdsForSymbols,
-        limit: 50,
-      })
+
+      const fundingPayments = []
+      const interestPayments = []
+      let startCursor = undefined
+
+      for (let page = 0; page < FUNDING_MAX_PAGES; page += 1) {
+        const res = await indexer.getPaginatedSubaccountInterestFundingPayments({
+          subaccountOwner: ownerAddress,
+          subaccountName,
+          productIds: productIdsForSymbols,
+          limit: FUNDING_PAGE_LIMIT,
+          ...(startCursor ? { startCursor } : {}),
+        })
+
+        if (Array.isArray(res?.fundingPayments)) fundingPayments.push(...res.fundingPayments)
+        if (Array.isArray(res?.interestPayments)) interestPayments.push(...res.interestPayments)
+
+        const nextCursor = res?.meta?.nextCursor ?? res?.nextCursor ?? null
+        const hasMore = Boolean(res?.meta?.hasMore ?? nextCursor)
+        if (!hasMore || !nextCursor) break
+        startCursor = nextCursor
+      }
+
+      return { fundingPayments, interestPayments }
     },
   })
 
@@ -305,8 +401,13 @@ export function usePortfolioData({
     [positionsQuery.data],
   )
 
-  const netEntryByProductId = useMemo(
-    () => extractNetEntryPriceByProductId(accountSnapshotQuery.data),
+  const snapshotMetricsByProductId = useMemo(
+    () => extractPerpSnapshotMetricsByProductId(accountSnapshotQuery.data),
+    [accountSnapshotQuery.data],
+  )
+
+  const snapshotByPositionKey = useMemo(
+    () => extractPerpSnapshotByPositionKey(accountSnapshotQuery.data),
     [accountSnapshotQuery.data],
   )
 
@@ -315,48 +416,242 @@ export function usePortfolioData({
       adaptPerpPositionsFromBalances(
         summaryQuery.data?.balances ?? [],
         symbolsByProductId,
-        netEntryByProductId,
       ),
-    [summaryQuery.data, symbolsByProductId, netEntryByProductId],
+    [summaryQuery.data, symbolsByProductId],
   )
 
-  const positions = useMemo(() => {
-    const base =
-      crossPositions?.length > 0
-        ? crossPositions
-        : perpPositionsFromBalances
-    if (!base?.length) return base
-    return base
-      .filter(isNonZeroOpenPosition)
-      .map((row) => {
-        const pid = row.productId
-        const pidKey = pid != null ? String(pid) : null
-        const fromIndexer =
-          pidKey != null && netEntryByProductId[pidKey] != null
-            ? netEntryByProductId[pidKey]
-            : null
-        const entry =
-          row.entry != null && Number.isFinite(Number(row.entry))
-            ? row.entry
-            : fromIndexer != null && Number.isFinite(fromIndexer)
-              ? fromIndexer
-              : row.entry
-        return {
-          ...row,
-          market: normalizePerpMarketLabel(row.market),
-          entry,
-        }
-      })
-  }, [crossPositions, perpPositionsFromBalances, netEntryByProductId])
-  const orders = useMemo(() => adaptOrders(ordersQuery.data), [ordersQuery.data])
-  const trades = useMemo(
-    () => adaptTrades(tradesQuery.data, symbolsByProductId),
-    [tradesQuery.data, symbolsByProductId],
-  )
   const funding = useMemo(
     () =>
       adaptFundingPayments(fundingQuery.data?.fundingPayments ?? [], symbolsByProductId),
     [fundingQuery.data, symbolsByProductId],
+  )
+
+  const latestMarketPricesByProductId = useMemo(() => {
+    const map = {}
+    for (const row of latestMarketPricesQuery.data ?? []) {
+      const pid = row?.productId
+      if (pid == null) continue
+      map[String(pid)] = row
+    }
+    return map
+  }, [latestMarketPricesQuery.data])
+
+  const latestOraclePricesByProductId = useMemo(() => {
+    const map = {}
+    for (const row of latestOraclePricesQuery.data ?? []) {
+      const pid = row?.productId
+      const oraclePrice = toNumber(row?.oraclePrice)
+      if (pid == null || oraclePrice == null || !Number.isFinite(oraclePrice)) continue
+      map[String(pid)] = oraclePrice
+    }
+    return map
+  }, [latestOraclePricesQuery.data])
+
+  /** USD net funding (indexer snapshot tracked vars); payment-sum fallback if snapshot missing. */
+  const fundingUsdByProductId = useMemo(() => {
+    const fromSnap = {}
+    for (const [pid, metrics] of Object.entries(snapshotMetricsByProductId)) {
+      if (metrics?.fundingUsd != null && Number.isFinite(metrics.fundingUsd)) {
+        fromSnap[pid] = metrics.fundingUsd
+      }
+    }
+    const fromPayments = aggregateFundingPaymentsUsdByProductId(funding)
+    const out = { ...fromPayments }
+    for (const k of Object.keys(fromSnap)) {
+      out[k] = fromSnap[k]
+    }
+    return out
+  }, [snapshotMetricsByProductId, funding])
+
+  const canonicalPerpPositions = useMemo(
+    () =>
+      adaptCanonicalPerpPositions(
+        summaryQuery.data?.balances ?? [],
+        isolatedPositionsQuery.data ?? [],
+        symbolsByProductId,
+      ),
+    [summaryQuery.data, isolatedPositionsQuery.data, symbolsByProductId],
+  )
+
+  const positions = useMemo(() => {
+    if (canonicalPerpPositions.length > 0) {
+      return canonicalPerpPositions
+        .map((row) => {
+          const pid = row.productId
+          const pidKey = pid != null ? String(pid) : null
+          const snapshot =
+            pidKey != null
+              ? snapshotByPositionKey[perpPositionKey(pid, row.isolated)]
+              : null
+          const fallbackOracle =
+            (pidKey != null ? latestOraclePricesByProductId[pidKey] : null) ?? row.oraclePrice
+          const isLong = row.side === 'LONG'
+          const exitPrice =
+            pickEstimatedExitPrice(
+              isLong,
+              pidKey != null ? latestMarketPricesByProductId[pidKey] : null,
+              fallbackOracle,
+            ) ?? fallbackOracle
+
+          const snapshotEntry =
+            snapshot != null
+              ? entryPriceFromNetEntryUnrealized(
+                  snapshot?.state?.postBalance?.amount,
+                  snapshot?.trackedVars?.netEntryUnrealized,
+                )
+              : null
+
+          const fallbackEntry =
+            pidKey != null &&
+            snapshotMetricsByProductId[pidKey]?.entry != null &&
+            Number.isFinite(snapshotMetricsByProductId[pidKey].entry)
+              ? snapshotMetricsByProductId[pidKey].entry
+              : row.entry != null && Number.isFinite(Number(row.entry))
+                ? row.entry
+                : null
+
+          const pnlFromSnapshot =
+            snapshot != null && exitPrice != null
+              ? calcUnrealizedPnlFromSnapshotEvent(snapshot, exitPrice)
+              : null
+
+          const fundingUsd =
+            snapshot?.trackedVars?.netFundingUnrealized != null
+              ? fromX18(snapshot.trackedVars.netFundingUnrealized)
+              : pidKey != null &&
+                  fundingUsdByProductId[pidKey] != null &&
+                  Number.isFinite(fundingUsdByProductId[pidKey])
+                ? fundingUsdByProductId[pidKey]
+                : null
+
+          const crossMargin =
+            row.isolated || !row.row
+              ? null
+              : calcPerpBalanceValueUsd(row.row.amount, row.row.oraclePrice, row.row.vQuoteBalance) != null
+                ? Number(
+                    Math.max(
+                      0,
+                      calcPerpBalanceValueUsd(
+                        row.row.amount,
+                        row.row.oraclePrice,
+                        row.row.vQuoteBalance,
+                      ) -
+                        (fromX18(row.row?.healthContributions?.initial) ?? 0),
+                    ),
+                  )
+                : null
+
+          const isoMargin =
+            row.isolated
+              ? ((fromX18(row.isoQuoteBalance) ?? 0) +
+                  (calcPerpBalanceValueUsd(row.amount, fallbackOracle, row.vQuoteBalance) ?? 0))
+              : null
+
+          const crossRoeMargin =
+            snapshot != null ? calcRoeDenominatorUsdFromSnapshotEvent(snapshot) : null
+
+          const isoRoeMargin =
+            row.isolated && snapshot?.trackedVars?.netEntryUnrealized != null
+              ? Math.abs(fromX18(snapshot.trackedVars.netEntryUnrealized) ?? NaN)
+              : null
+
+          const maintenanceHealth = row.isolated
+            ? row.isoHealths?.maintenance
+            : summaryQuery.data?.health?.maintenance?.health
+
+          const marginValue =
+            row.isolated && isoMargin != null && Number.isFinite(isoMargin)
+              ? isoMargin
+              : crossMargin
+
+          const leverage =
+            row.notional != null &&
+            marginValue != null &&
+            Number.isFinite(Number(row.notional)) &&
+            Number.isFinite(Number(marginValue)) &&
+            Math.abs(Number(marginValue)) > 1e-12
+              ? Math.abs(Number(row.notional)) / Math.abs(Number(marginValue))
+              : null
+
+          return {
+            ...row,
+            market: normalizePerpMarketLabel(row.market),
+            entry: snapshotEntry ?? fallbackEntry,
+            pnl:
+              pnlFromSnapshot != null && Number.isFinite(pnlFromSnapshot)
+                ? pnlFromSnapshot
+                : row.pnl != null && Number.isFinite(Number(row.pnl))
+                  ? row.pnl
+                  : null,
+            mark: fallbackOracle,
+            margin: marginValue,
+            roeMargin:
+              row.isolated && isoRoeMargin != null && Number.isFinite(isoRoeMargin)
+                ? isoRoeMargin
+                : crossRoeMargin,
+            fundingUsd,
+            leverage,
+            estimatedLiquidationPrice:
+              row.row != null
+                ? calcEstimatedLiqPriceFromBalance(row.row, maintenanceHealth)
+                : null,
+          }
+        })
+        .filter(isNonZeroOpenPosition)
+    }
+
+    const base = crossPositions?.length > 0 ? crossPositions : perpPositionsFromBalances
+    if (!base?.length) return base
+    return base.filter(isNonZeroOpenPosition).map((row) => {
+      const pidKey = row.productId != null ? String(row.productId) : null
+      return {
+        ...row,
+        market: normalizePerpMarketLabel(row.market),
+        entry:
+          pidKey != null &&
+          snapshotMetricsByProductId[pidKey]?.entry != null &&
+          Number.isFinite(snapshotMetricsByProductId[pidKey].entry)
+            ? snapshotMetricsByProductId[pidKey].entry
+            : row.entry,
+        pnl:
+          pidKey != null &&
+          snapshotMetricsByProductId[pidKey]?.pnl != null &&
+          Number.isFinite(snapshotMetricsByProductId[pidKey].pnl)
+            ? snapshotMetricsByProductId[pidKey].pnl
+            : row.pnl,
+        fundingUsd:
+          pidKey != null &&
+          fundingUsdByProductId[pidKey] != null &&
+          Number.isFinite(fundingUsdByProductId[pidKey])
+            ? fundingUsdByProductId[pidKey]
+            : null,
+        leverage:
+          row.leverage != null && Number.isFinite(Number(row.leverage))
+            ? Number(row.leverage)
+            : row.notional != null &&
+                row.margin != null &&
+                Number.isFinite(Number(row.notional)) &&
+                Number.isFinite(Number(row.margin)) &&
+                Math.abs(Number(row.margin)) > 1e-12
+              ? Math.abs(Number(row.notional)) / Math.abs(Number(row.margin))
+              : null,
+      }
+    })
+  }, [
+    canonicalPerpPositions,
+    crossPositions,
+    perpPositionsFromBalances,
+    snapshotMetricsByProductId,
+    snapshotByPositionKey,
+    fundingUsdByProductId,
+    latestMarketPricesByProductId,
+    latestOraclePricesByProductId,
+    summaryQuery.data,
+  ])
+  const orders = useMemo(() => adaptOrders(ordersQuery.data), [ordersQuery.data])
+  const trades = useMemo(
+    () => adaptTrades(tradesQuery.data, symbolsByProductId),
+    [tradesQuery.data, symbolsByProductId],
   )
   const pnl = useMemo(
     () => adaptPnl(pnlQuery.data, summary),
@@ -376,6 +671,9 @@ export function usePortfolioData({
     summaryQuery,
     symbolsQuery,
     accountSnapshotQuery,
+    isolatedPositionsQuery,
+    latestMarketPricesQuery,
+    latestOraclePricesQuery,
     positionsQuery,
     ordersQuery,
     tradesQuery,
@@ -385,6 +683,23 @@ export function usePortfolioData({
   ]
   const isLoadingAny = queries.some((q) => q.isLoading)
   const hasAnyError = queries.some((q) => q.error)
+  const canonicalPositionsQuery = {
+    isLoading:
+      summaryQuery.isLoading ||
+      symbolsQuery.isLoading ||
+      accountSnapshotQuery.isLoading ||
+      isolatedPositionsQuery.isLoading ||
+      latestMarketPricesQuery.isLoading ||
+      latestOraclePricesQuery.isLoading,
+    error:
+      summaryQuery.error ??
+      symbolsQuery.error ??
+      accountSnapshotQuery.error ??
+      isolatedPositionsQuery.error ??
+      latestMarketPricesQuery.error ??
+      latestOraclePricesQuery.error ??
+      null,
+  }
 
   return {
     summary,
@@ -400,6 +715,10 @@ export function usePortfolioData({
       summary: summaryQuery,
       symbols: symbolsQuery,
       accountSnapshot: accountSnapshotQuery,
+      canonicalPositions: canonicalPositionsQuery,
+      isolatedPositions: isolatedPositionsQuery,
+      latestMarketPrices: latestMarketPricesQuery,
+      latestOraclePrices: latestOraclePricesQuery,
       spotTokenSymbols: spotTokenSymbolsQuery,
       positions: positionsQuery,
       orders: ordersQuery,

@@ -129,6 +129,12 @@ export function parseHumanAmount(amountStr, decimals) {
   return parseUnits(s, decimals)
 }
 
+export function parseHumanEngineAmount(amountStr) {
+  const s = String(amountStr ?? '').trim()
+  if (!s) throw new Error('Enter an amount')
+  return parseUnits(s, ENGINE_AMOUNT_X18_DECIMALS)
+}
+
 /**
  * Approve Endpoint if current allowance is below `amount` (raw units).
  */
@@ -190,6 +196,7 @@ export async function fetchQuoteSpotBalance(client, { subaccountOwner, subaccoun
   if (!row) {
     return {
       raw: 0n,
+      engineX18: 0n,
       human: formatUnits(0n, meta.decimals),
       decimals: meta.decimals,
       tokenAddr: meta.tokenAddr,
@@ -200,6 +207,7 @@ export async function fetchQuoteSpotBalance(client, { subaccountOwner, subaccoun
   const raw = engineX18ToTokenRaw(x18, meta.decimals)
   return {
     raw,
+    engineX18: x18,
     human: formatUnits(raw, meta.decimals),
     decimals: meta.decimals,
     tokenAddr: meta.tokenAddr,

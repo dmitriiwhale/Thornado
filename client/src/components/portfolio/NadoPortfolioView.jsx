@@ -200,7 +200,8 @@ function OverviewTab({
   const loading = portfolio.queries.summary.isLoading
   const noSubaccount = portfolio.queries.summary.isSuccess && portfolio.summary?.exists === false
   const ordersError = portfolio.queries.orders?.error
-  const positionsError = portfolio.queries.positions?.error
+  const positionsError =
+    portfolio.queries.canonicalPositions?.error ?? portfolio.queries.positions?.error
   const balancesRanked = useMemo(() => {
     const list = portfolio.balances ?? []
     const isActive = (b) => {
@@ -404,7 +405,10 @@ function OverviewTab({
           <div className="max-h-[381px] min-h-0 overflow-y-auto">
             <NadoPositionsTable
               positions={portfolio.positions}
-              loading={portfolio.queries.positions.isLoading}
+              loading={
+                portfolio.queries.canonicalPositions?.isLoading ??
+                portfolio.queries.positions.isLoading
+              }
               error={positionsError}
               nadoAppOrigin={nadoAppOrigin}
             />
@@ -583,7 +587,7 @@ function HistoryTab({ portfolio, fmt, nadoAppOrigin }) {
               <div className="flex flex-wrap gap-2">
                 <div className="rounded-lg border border-white/[0.08] bg-black/20 px-2.5 py-1.5 text-right">
                   <div className="text-[9px] font-semibold uppercase tracking-wider text-slate-500">
-                    Ticks (loaded)
+                    Ticks
                   </div>
                   <div className="font-mono text-sm tabular-nums text-slate-100">{fundStats.count}</div>
                 </div>
@@ -785,8 +789,7 @@ function HistoryTab({ portfolio, fmt, nadoAppOrigin }) {
       )}
       {historyPanel === 'funding' && !qf.isLoading && !qf.error && !fundingScopeEmpty && funding.length > 0 && (
         <div className="border-t border-white/[0.08] px-3 py-2 text-[11px] leading-relaxed text-slate-500">
-          Perp funding ticks from the indexer (latest {funding.length} per product scope). Older
-          ticks may require pagination in a future update.
+          Perp funding ticks from the indexer for the current product scope.
         </div>
       )}
     </section>
