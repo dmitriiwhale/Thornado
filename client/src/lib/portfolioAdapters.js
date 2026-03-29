@@ -79,7 +79,7 @@ export function deriveUnifiedMargin(summary) {
     if (a && l) {
       const excess = a.minus(l).dividedBy(X18)
       const n = excess.toNumber()
-      if (Number.isFinite(n)) availableMargin = Math.max(0, n)
+      if (Number.isFinite(n)) availableMargin = n
     }
   }
 

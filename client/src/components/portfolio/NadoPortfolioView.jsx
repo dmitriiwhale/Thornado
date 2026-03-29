@@ -67,8 +67,7 @@ export default function NadoPortfolioView({
   const usdtRow = pickCollateralRow(portfolio.balances)
 
   const marginBarWidth = useMemo(() => {
-    const m =
-      um?.maintenanceMarginUsagePercent ?? um?.initialMarginUsagePercent ?? null
+    const m = um?.maintenanceMarginUsagePercent ?? null
     if (m == null) return 0
     return Math.min(100, Math.max(0, m))
   }, [um])
@@ -233,6 +232,52 @@ function OverviewTab({
     () => buildCumulativeRealizedPnlSeries(portfolio.trades),
     [portfolio.trades],
   )
+  const derivedUnrealized = useMemo(() => {
+    const list = portfolio.positions ?? []
+    let sum = 0
+    let seen = false
+    for (const row of list) {
+      const v = Number(row?.pnl)
+      if (!Number.isFinite(v)) continue
+      sum += v
+      seen = true
+    }
+    return seen ? sum : null
+  }, [portfolio.positions])
+  const derivedBalancesValue = useMemo(() => {
+    const list = portfolio.balances ?? []
+    let sum = 0
+    let seen = false
+    for (const row of list) {
+      const v = Number(row?.usdValue)
+      if (!Number.isFinite(v)) continue
+      sum += v
+      seen = true
+    }
+    return seen ? sum : null
+  }, [portfolio.balances])
+  const derivedRealizedLoaded = useMemo(() => {
+    const list = portfolio.trades ?? []
+    let sum = 0
+    let seen = false
+    for (const row of list) {
+      const v = Number(row?.realizedPnl)
+      if (!Number.isFinite(v)) continue
+      sum += v
+      seen = true
+    }
+    return seen ? sum : null
+  }, [portfolio.trades])
+  const accountUnrealized = portfolio.pnl?.unrealized ?? derivedUnrealized ?? null
+  const accountEquity =
+    portfolio.pnl?.equity ??
+    portfolio.summary?.totalEquity ??
+    (derivedBalancesValue != null && accountUnrealized != null
+      ? derivedBalancesValue + accountUnrealized
+      : derivedBalancesValue) ??
+    null
+  const accountRealized = portfolio.pnl?.realized ?? derivedRealizedLoaded ?? null
+  const realizedLabel = portfolio.pnl?.realized != null ? 'Realized PnL' : 'Realized PnL (loaded)'
 
   return (
     <div className="flex flex-col gap-3">
@@ -249,7 +294,7 @@ function OverviewTab({
         {!loading && !noSubaccount && (
           <div className="mt-3 grid grid-cols-2 gap-3 lg:grid-cols-4">
             <MetricCompact
-              label="Margin usage (initial)"
+              label="Initial usage"
               value={
                 um?.initialMarginUsagePercent != null
                   ? fmt.percentPlain(um.initialMarginUsagePercent)
@@ -267,19 +312,23 @@ function OverviewTab({
                 <div className="relative h-1.5 w-16 overflow-hidden rounded-full bg-white/10 sm:w-24">
                   <div
                     className="absolute inset-y-0 left-0 rounded-full bg-emerald-500/80"
-                    style={{ width: `${marginBarWidth}%` }}
+                    style={{
+                      width: `${
+                        um?.maintenanceMarginUsagePercent != null ? marginBarWidth : 0
+                      }%`,
+                    }}
                   />
                 </div>
               </div>
             </div>
             <MetricCompact
-              label="Available (maint.)"
+              label="Maint. buffer"
               value={
                 um?.availableMargin != null ? fmt.currency(um.availableMargin) : '—'
               }
             />
             <MetricCompact
-              label="Health (maint.)"
+              label="Maint. health"
               value={
                 um?.fundsUntilLiquidation != null
                   ? fmt.number(um.fundsUntilLiquidation, 4)
@@ -290,11 +339,39 @@ function OverviewTab({
         )}
       </section>
 
+      <section className={`${C.card} overflow-hidden p-0`}>
+        <div className="border-b border-white/[0.08] px-3 py-2">
+          <span className="text-xs font-medium text-slate-200">Account summary</span>
+        </div>
+        <div className="px-3 py-3">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+            <div>
+              <div className={C.muted + ' text-[10px]'}>Equity</div>
+              <div className={C.mono}>
+                {accountEquity != null ? fmt.currency(accountEquity) : '—'}
+              </div>
+            </div>
+            <div>
+              <div className={C.muted + ' text-[10px]'}>Unreal. PnL</div>
+              <div className={C.mono}>
+                {accountUnrealized != null ? fmt.signedCurrency(accountUnrealized) : '—'}
+              </div>
+            </div>
+            <div>
+              <div className={C.muted + ' text-[10px]'}>{realizedLabel}</div>
+              <div className={C.mono}>
+                {accountRealized != null ? fmt.signedCurrency(accountRealized) : '—'}
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* Collateral snapshot */}
       <section className={`${C.card} overflow-hidden p-0`}>
         <div className="border-b border-white/[0.08] px-3 py-2">
           <span className="text-xs font-medium text-slate-200">
-            {usdtRow?.symbol ? `${usdtRow.symbol} balance` : 'Collateral'}
+            {usdtRow?.symbol ? `${usdtRow.symbol} collateral` : 'Collateral'}
           </span>
         </div>
         <div className="px-3 py-3">
@@ -305,8 +382,10 @@ function OverviewTab({
                 <div className={C.mono}>{fmt.number(usdtRow.total)}</div>
               </div>
               <div>
-                <div className={C.muted + ' text-[10px]'}>Unreal. PnL</div>
-                <div className={C.mono}>{fmt.signedCurrency(portfolio.pnl?.unrealized)}</div>
+                <div className={C.muted + ' text-[10px]'}>Value</div>
+                <div className={C.mono}>
+                  {usdtRow.usdValue != null ? fmt.currency(usdtRow.usdValue) : '—'}
+                </div>
               </div>
               <div>
                 <div className={C.muted + ' text-[10px]'}>Available</div>
@@ -329,7 +408,7 @@ function OverviewTab({
 
       <section className={`${C.card} overflow-hidden p-0`}>
         <div className="border-b border-white/[0.08] px-3 py-2">
-          <span className="text-xs font-medium text-slate-200">Realized PnL</span>
+          <span className="text-xs font-medium text-slate-200">Realized PnL curve</span>
         </div>
         <div className="w-full min-w-0 px-2 pb-2 pt-1">
           <PnlCurveChart
@@ -464,19 +543,15 @@ function MarginManagerTab({ portfolio, fmt }) {
           }
         />
         <Row
-          label="Available (maint. assets − liab.)"
+          label="Maintenance buffer (assets − liab.)"
           value={um?.availableMargin != null ? fmt.currency(um.availableMargin) : '—'}
         />
         <Row
-          label="Maintenance health (x18→dec)"
+          label="Maintenance health"
           value={um?.fundsUntilLiquidation != null ? fmt.number(um.fundsUntilLiquidation, 6) : '—'}
         />
         <Row label="Subaccount on engine" value={portfolio.summary?.exists ? 'yes' : 'no'} />
       </div>
-      <p className={`${C.muted} mt-4 text-[11px] leading-relaxed`}>
-        Figures come from your Nado engine account snapshot (margin and health). If more risk
-        details are available from Nado, they appear here automatically.
-      </p>
     </section>
   )
 }
@@ -560,7 +635,7 @@ function HistoryTab({ portfolio, fmt, nadoAppOrigin }) {
                 </div>
                 <div className="rounded-lg border border-white/[0.08] bg-black/20 px-2.5 py-1.5 text-right">
                   <div className="text-[9px] font-semibold uppercase tracking-wider text-slate-500">
-                    Fees Σ
+                    Fees Σ (loaded)
                   </div>
                   <div className="font-mono text-sm tabular-nums text-slate-200">
                     {fmt.currency(tradeStats.fees)}
@@ -568,7 +643,7 @@ function HistoryTab({ portfolio, fmt, nadoAppOrigin }) {
                 </div>
                 <div className="rounded-lg border border-white/[0.08] bg-black/20 px-2.5 py-1.5 text-right">
                   <div className="text-[9px] font-semibold uppercase tracking-wider text-slate-500">
-                    Realized Σ
+                    Realized Σ (loaded)
                   </div>
                   <div
                     className={`font-mono text-sm font-semibold tabular-nums ${pnlCellClass(tradeStats.realized)}`}
@@ -587,13 +662,13 @@ function HistoryTab({ portfolio, fmt, nadoAppOrigin }) {
               <div className="flex flex-wrap gap-2">
                 <div className="rounded-lg border border-white/[0.08] bg-black/20 px-2.5 py-1.5 text-right">
                   <div className="text-[9px] font-semibold uppercase tracking-wider text-slate-500">
-                    Ticks
+                    Ticks (scope)
                   </div>
                   <div className="font-mono text-sm tabular-nums text-slate-100">{fundStats.count}</div>
                 </div>
                 <div className="rounded-lg border border-white/[0.08] bg-black/20 px-2.5 py-1.5 text-right">
                   <div className="text-[9px] font-semibold uppercase tracking-wider text-slate-500">
-                    Payment Σ
+                    Payment Σ (scope)
                   </div>
                   <div
                     className={`font-mono text-sm font-semibold tabular-nums ${pnlCellClass(fundStats.sum)}`}
@@ -773,23 +848,12 @@ function HistoryTab({ portfolio, fmt, nadoAppOrigin }) {
               {!qf.isLoading && !qf.error && !fundingScopeEmpty && funding.length === 0 && (
                 <tr>
                   <td colSpan={6} className="px-3 py-7 text-center text-[14px] text-slate-500">
-                    No funding payments in this window.
+                    No funding payments for the current product scope.
                   </td>
                 </tr>
               )}
             </tbody>
           </table>
-        </div>
-      )}
-      {historyPanel === 'trades' && !q.isLoading && !q.error && trades.length > 0 && (
-        <div className="border-t border-white/[0.08] px-3 py-2 text-[11px] leading-relaxed text-slate-500">
-          Totals above are for the fills listed in this table (same window as the API). Older
-          activity may not appear.
-        </div>
-      )}
-      {historyPanel === 'funding' && !qf.isLoading && !qf.error && !fundingScopeEmpty && funding.length > 0 && (
-        <div className="border-t border-white/[0.08] px-3 py-2 text-[11px] leading-relaxed text-slate-500">
-          Perp funding ticks from the indexer for the current product scope.
         </div>
       )}
     </section>
