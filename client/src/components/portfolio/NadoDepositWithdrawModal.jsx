@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { erc20Abi, formatUnits } from 'viem'
 import { waitForTransactionReceipt } from 'viem/actions'
 import { useChainId, useSwitchChain } from 'wagmi'
@@ -12,12 +13,16 @@ import {
   fetchLatestCollateralEvents,
   fetchMaxWithdrawable,
   getSpotCollateralMeta,
-  listSpotCollateralProducts,
   parseHumanAmount,
   pollUntilNSubmissionsIncreased,
   pollUntilSubmissionFinalized,
   readNSubmissions,
 } from '../../lib/nadoSpotCollateral.js'
+import {
+  depositWithdrawProductsQueryKey,
+  DW_PRODUCTS_STALE_MS,
+  fetchDepositWithdrawProducts,
+} from '../../lib/accountPreload.js'
 import { useNadoNetwork } from '../../context/NadoNetworkContext.jsx'
 import { formatUserFacingError } from '../../lib/formatUserFacingError.js'
 import Web3TokenIcon from './Web3TokenIcon.jsx'
@@ -71,6 +76,7 @@ export default function NadoDepositWithdrawModal({
   docsDepositUrl = 'https://docs.nado.xyz/developer-resources/api/depositing',
   docsWithdrawUrl = 'https://docs.nado.xyz/developer-resources/api/withdrawing-on-chain',
 }) {
+  const queryClient = useQueryClient()
   const { mode: networkMode, setMode, activeChain, mainnetEnabled } = useNadoNetwork()
   const chainId = useChainId()
   const { switchChain, isPending: switchPending } = useSwitchChain()
@@ -137,7 +143,11 @@ export default function NadoDepositWithdrawModal({
       }
       setMetaError(null)
       try {
-        const list = await listSpotCollateralProducts(client)
+        const list = await queryClient.fetchQuery({
+          queryKey: depositWithdrawProductsQueryKey(activeChain?.id ?? 'unknown'),
+          queryFn: () => fetchDepositWithdrawProducts(getNadoClient),
+          staleTime: DW_PRODUCTS_STALE_MS,
+        })
         if (cancelled) return
         setSpotOptions(list)
         setProductId((prev) => {
@@ -154,7 +164,7 @@ export default function NadoDepositWithdrawModal({
     return () => {
       cancelled = true
     }
-  }, [open, getNadoClient, reset, networkMode])
+  }, [open, getNadoClient, reset, networkMode, queryClient, activeChain?.id])
 
   useEffect(() => {
     if (!open || productId == null) return

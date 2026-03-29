@@ -1,17 +1,21 @@
 import React, { useCallback, useEffect, useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { formatUnits } from 'viem'
 import { useChainId, useSwitchChain } from 'wagmi'
 import { ArrowLeftRight, X } from 'lucide-react'
 import BigNumber from 'bignumber.js'
 import {
   executeTransferQuote,
-  fetchQuoteProductSymbol,
   fetchQuoteSpotBalance,
-  getSpotCollateralMeta,
   parseHumanEngineAmount,
   pollUntilNSubmissionsIncreased,
   readNSubmissions,
 } from '../../lib/nadoSpotCollateral.js'
+import {
+  fetchTransferBootstrap,
+  TRANSFER_BOOTSTRAP_STALE_MS,
+  transferBootstrapQueryKey,
+} from '../../lib/accountPreload.js'
 import { formatUserFacingError } from '../../lib/formatUserFacingError.js'
 import { useNadoNetwork } from '../../context/NadoNetworkContext.jsx'
 import Web3TokenIcon from './Web3TokenIcon.jsx'
@@ -29,6 +33,7 @@ export default function NadoTransferModal({
   onCompleted,
   nadoAppOrigin = null,
 }) {
+  const queryClient = useQueryClient()
   const { activeChain } = useNadoNetwork()
   const chainId = useChainId()
   const { switchChain, isPending: switchPending } = useSwitchChain()
@@ -78,13 +83,14 @@ export default function NadoTransferModal({
       }
       setLoadErr(null)
       try {
-        const [meta, sym] = await Promise.all([
-          getSpotCollateralMeta(client, 0),
-          fetchQuoteProductSymbol(client, 0),
-        ])
+        const data = await queryClient.fetchQuery({
+          queryKey: transferBootstrapQueryKey(activeChain?.id ?? 'unknown'),
+          queryFn: () => fetchTransferBootstrap(getNadoClient),
+          staleTime: TRANSFER_BOOTSTRAP_STALE_MS,
+        })
         if (cancelled) return
-        setQuoteMeta(meta)
-        setQuoteSymbol(sym)
+        setQuoteMeta(data.quoteMeta)
+        setQuoteSymbol(data.quoteSymbol)
       } catch (e) {
         if (!cancelled) setLoadErr(e instanceof Error ? e.message : 'Failed to load quote asset')
       }
@@ -92,7 +98,7 @@ export default function NadoTransferModal({
     return () => {
       cancelled = true
     }
-  }, [open, getNadoClient, ownerAddress])
+  }, [open, getNadoClient, ownerAddress, queryClient, activeChain?.id])
 
   useEffect(() => {
     if (!open || !ownerAddress || !quoteMeta) return

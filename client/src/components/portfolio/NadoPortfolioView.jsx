@@ -1,4 +1,5 @@
-import React, { useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { Search } from 'lucide-react'
 import NadoDepositWithdrawModal from './NadoDepositWithdrawModal.jsx'
 import NadoTransferModal from './NadoTransferModal.jsx'
@@ -10,6 +11,17 @@ import {
   tradeSideClass,
   buildCumulativeRealizedPnlSeries,
 } from '../../lib/portfolioAdapters.js'
+import {
+  depositWithdrawProductsQueryKey,
+  DW_PRODUCTS_STALE_MS,
+  fetchDepositWithdrawProducts,
+  fetchMarketCommandCenterRows,
+  fetchTransferBootstrap,
+  MARKET_COMMAND_CENTER_STALE_MS,
+  marketCommandCenterQueryKey,
+  TRANSFER_BOOTSTRAP_STALE_MS,
+  transferBootstrapQueryKey,
+} from '../../lib/accountPreload.js'
 import PnlCurveChart from './PnlCurveChart.jsx'
 import PortfolioAvatar from './PortfolioAvatar.jsx'
 import Web3TokenIcon from './Web3TokenIcon.jsx'
@@ -47,6 +59,39 @@ function AssetCell({ symbol, seed, nadoAppOrigin }) {
   )
 }
 
+function scheduleIdlePrefetch(task, delayMs = 0) {
+  if (typeof window === 'undefined') return () => {}
+  let delayId = null
+  let idleId = null
+  let disposed = false
+
+  const run = () => {
+    if (disposed) return
+    if (typeof window.requestIdleCallback === 'function') {
+      idleId = window.requestIdleCallback(() => {
+        if (!disposed) task()
+      }, { timeout: 1500 })
+      return
+    }
+    idleId = window.setTimeout(() => {
+      if (!disposed) task()
+    }, 0)
+  }
+
+  delayId = window.setTimeout(run, delayMs)
+
+  return () => {
+    disposed = true
+    if (delayId != null) window.clearTimeout(delayId)
+    if (idleId == null) return
+    if (typeof window.cancelIdleCallback === 'function') {
+      window.cancelIdleCallback(idleId)
+      return
+    }
+    window.clearTimeout(idleId)
+  }
+}
+
 export default function NadoPortfolioView({
   walletAddress,
   chainEnv,
@@ -57,6 +102,7 @@ export default function NadoPortfolioView({
   depositWithdrawEnabled = false,
   publicClient = null,
 }) {
+  const queryClient = useQueryClient()
   const [mainTab, setMainTab] = useState('overview')
   const [dwModal, setDwModal] = useState(null)
   const [transferOpen, setTransferOpen] = useState(false)
@@ -77,6 +123,39 @@ export default function NadoPortfolioView({
     { id: 'margin', label: 'Margin' },
     { id: 'history', label: 'History' },
   ]
+
+  useEffect(() => {
+    if (!getNadoClient || !chainEnv) return
+
+    void queryClient.prefetchQuery({
+      queryKey: marketCommandCenterQueryKey(chainEnv),
+      queryFn: () => fetchMarketCommandCenterRows(getNadoClient),
+      staleTime: MARKET_COMMAND_CENTER_STALE_MS,
+    })
+
+    if (!depositWithdrawEnabled) return
+
+    const cancelTransfer = scheduleIdlePrefetch(() => {
+      void queryClient.prefetchQuery({
+        queryKey: transferBootstrapQueryKey(chainId ?? 'unknown'),
+        queryFn: () => fetchTransferBootstrap(getNadoClient),
+        staleTime: TRANSFER_BOOTSTRAP_STALE_MS,
+      })
+    }, 400)
+
+    const cancelDw = scheduleIdlePrefetch(() => {
+      void queryClient.prefetchQuery({
+        queryKey: depositWithdrawProductsQueryKey(chainId ?? 'unknown'),
+        queryFn: () => fetchDepositWithdrawProducts(getNadoClient),
+        staleTime: DW_PRODUCTS_STALE_MS,
+      })
+    }, 1400)
+
+    return () => {
+      cancelTransfer()
+      cancelDw()
+    }
+  }, [queryClient, getNadoClient, chainEnv, chainId, depositWithdrawEnabled])
 
   return (
     <div className="flex w-full flex-col gap-4">

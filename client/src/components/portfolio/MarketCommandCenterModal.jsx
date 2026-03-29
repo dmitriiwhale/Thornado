@@ -1,8 +1,12 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { ChevronDown } from 'lucide-react'
-import { NLP_PRODUCT_ID, ProductEngineType, QUOTE_PRODUCT_ID } from '@nadohq/shared'
 import Web3TokenIcon from './Web3TokenIcon.jsx'
+import {
+  fetchMarketCommandCenterRows,
+  MARKET_COMMAND_CENTER_STALE_MS,
+  marketCommandCenterQueryKey,
+} from '../../lib/accountPreload.js'
 
 const CATEGORIES = [
   { id: 'all', label: 'All' },
@@ -15,139 +19,6 @@ const CATEGORIES = [
   { id: 'forex', label: 'FX' },
   { id: 'indices', label: 'Indices' },
 ]
-
-const SYMBOL_CHUNK = 48
-
-function classifyMarketTag(symbol, kind) {
-  const s = String(symbol).toUpperCase()
-  const base = s.split(/[\/-]/)[0] ?? s
-
-  if (/USDJPY|GBPUSD|EURUSD|AUDUSD|USDCAD|NZDUSD/.test(s)) return 'forex'
-  if (/\b(SPY|QQQ|IWM|DIA)\b/.test(s)) return 'indices'
-  if (/\b(WTI|XAG|XAU|XPT)\b/.test(s) || /\b(OIL|GOLD|SILVER)\b/.test(s)) return 'commodity'
-  if (
-    /KPEPE|KBONK|PEPE|DOGE|FART|PUMP|PENGU|SHIB|MEME|TRUMP|BONK|FLOKI|WIF/.test(s)
-  ) {
-    return 'meme'
-  }
-  if (/UNI|AAVE|LINK|ENA|ONDO|LDO|CRV|MKR|COMP|SNX|ZRO|SKY|GMX|JUP|ASTER|WLFI|XPL|LIT/.test(base)) {
-    return 'defi'
-  }
-  if (
-    /^(BTC|ETH|SOL|BNB|ARB|OP|MATIC|POL|AVAX|HYPE|INJ|ATOM|SEI|TON|ZK|LTC|BCH|XRP|ADA|NEAR|APT|SUI|STRK|CELO|ONE|MON|ZEC)$/.test(
-      base,
-    )
-  ) {
-    return 'chain'
-  }
-  return kind === 'perp' ? 'perp' : 'spot'
-}
-
-async function fetchCommandCenterRows(getNadoClient) {
-  const client = getNadoClient?.()
-  if (!client) throw new Error('Client unavailable')
-
-  /** Skip engine “system” products — not tradable markets; often lack symbols in getSymbols. */
-  const markets = (await client.market.getAllMarkets()).filter((m) => {
-    const pid = Number(m.productId)
-    return pid !== QUOTE_PRODUCT_ID && pid !== NLP_PRODUCT_ID
-  })
-  const pids = markets.map((m) => m.productId)
-
-  const symbolsById = {}
-  for (let i = 0; i < pids.length; i += SYMBOL_CHUNK) {
-    const slice = pids.slice(i, i + SYMBOL_CHUNK)
-    const res = await client.context.engineClient.getSymbols({ productIds: slice })
-    const obj = res?.symbols ?? {}
-    for (const [key, v] of Object.entries(obj)) {
-      const pid = v?.productId ?? key
-      const sym = v?.symbol ?? v?.ticker
-      if (sym != null && pid != null) symbolsById[String(pid)] = String(sym)
-    }
-  }
-
-  const perpIds = markets
-    .filter((m) => m.type === ProductEngineType.PERP)
-    .map((m) => Number(m.productId))
-  const spotIds = markets
-    .filter((m) => m.type === ProductEngineType.SPOT)
-    .map((m) => Number(m.productId))
-
-  let perpPrices = {}
-  if (perpIds.length) {
-    try {
-      perpPrices = await client.perp.getMultiProductPerpPrices({ productIds: perpIds })
-    } catch {
-      perpPrices = {}
-    }
-  }
-
-  const oracleById = {}
-  if (spotIds.length) {
-    try {
-      const oracleList = await client.context.indexerClient.getOraclePrices({
-        productIds: spotIds,
-      })
-      for (const o of oracleList || []) {
-        oracleById[o.productId] = o.oraclePrice
-      }
-    } catch {
-      /* optional */
-    }
-  }
-
-  /** productId → 24h quote volume + change (indexer v2 tickers) */
-  const tickerByProductId = {}
-  try {
-    const ix = client.context?.indexerClient
-    if (typeof ix?.getV2Tickers === 'function') {
-      const tickers = await ix.getV2Tickers({ edge: true })
-      for (const t of Object.values(tickers ?? {})) {
-        if (t?.productId == null) continue
-        tickerByProductId[Number(t.productId)] = t
-      }
-    }
-  } catch {
-    /* optional */
-  }
-
-  const rows = markets
-    .map((m) => {
-      const pid = Number(m.productId)
-      const sym = symbolsById[String(pid)] ?? `Product ${pid}`
-      const kind = m.type === ProductEngineType.PERP ? 'perp' : 'spot'
-      let price = null
-      if (kind === 'perp') {
-        const p = perpPrices[pid] ?? perpPrices[String(pid)]
-        if (p?.markPrice != null) {
-          const bn = p.markPrice
-          price = typeof bn.toNumber === 'function' ? bn.toNumber() : Number(bn)
-        }
-      } else {
-        const o = oracleById[pid]
-        if (o != null) {
-          price = typeof o.toNumber === 'function' ? o.toNumber() : Number(o)
-        }
-      }
-      const tag = classifyMarketTag(sym, kind)
-      const tk = tickerByProductId[pid]
-      const quoteVolume = tk?.quoteVolume
-      const change24h = tk?.priceChangePercent24h
-      return {
-        productId: pid,
-        symbol: sym,
-        kind,
-        price,
-        tag,
-        quoteVolume: typeof quoteVolume === 'number' && Number.isFinite(quoteVolume) ? quoteVolume : null,
-        change24h: typeof change24h === 'number' && Number.isFinite(change24h) ? change24h : null,
-      }
-    })
-    .filter((r) => r.price != null && Number.isFinite(r.price))
-
-  rows.sort((a, b) => a.symbol.localeCompare(b.symbol))
-  return rows
-}
 
 function formatPrice(n) {
   if (n == null || !Number.isFinite(n)) return '—'
@@ -260,10 +131,10 @@ export default function MarketCommandCenterModal({
   const inputRef = useRef(null)
 
   const { data: rows = [], isLoading, isError, error } = useQuery({
-    queryKey: ['market-command-center', chainEnv],
-    queryFn: () => fetchCommandCenterRows(getNadoClient),
+    queryKey: marketCommandCenterQueryKey(chainEnv),
+    queryFn: () => fetchMarketCommandCenterRows(getNadoClient),
     enabled: open && Boolean(getNadoClient),
-    staleTime: 60_000,
+    staleTime: MARKET_COMMAND_CENTER_STALE_MS,
   })
 
   useEffect(() => {

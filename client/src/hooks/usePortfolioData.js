@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useQueries, useQuery } from '@tanstack/react-query'
 import {
   adaptPerpPositionsFromBalances,
@@ -38,6 +38,13 @@ function getInvoker(target, name) {
 
 const FUNDING_PAGE_LIMIT = 200
 const FUNDING_MAX_PAGES = 200
+const FAST_REFETCH_MS = 5_000
+const MEDIUM_REFETCH_MS = 15_000
+const SNAPSHOT_REFETCH_MS = 30_000
+const TRADES_REFETCH_MS = 60_000
+const SYMBOLS_STALE_MS = 5 * 60_000
+const FUNDING_STALE_MS = 15 * 60_000
+const TOKEN_SYMBOLS_STALE_MS = 60 * 60_000
 
 async function callFirstAvailable(methods, args) {
   for (const candidate of methods) {
@@ -53,6 +60,24 @@ async function callFirstAvailable(methods, args) {
   return null
 }
 
+function useDocumentVisibility() {
+  const [isVisible, setIsVisible] = useState(() => {
+    if (typeof document === 'undefined') return true
+    return document.visibilityState === 'visible'
+  })
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return undefined
+    const onVisibilityChange = () => {
+      setIsVisible(document.visibilityState === 'visible')
+    }
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    return () => document.removeEventListener('visibilitychange', onVisibilityChange)
+  }, [])
+
+  return isVisible
+}
+
 export function usePortfolioData({
   getNadoClient,
   enabled,
@@ -60,9 +85,18 @@ export function usePortfolioData({
   chainEnv,
   subaccountName = 'default',
 }) {
+  const isPageVisible = useDocumentVisibility()
+  const fastRefetchInterval = isPageVisible ? FAST_REFETCH_MS : false
+  const mediumRefetchInterval = isPageVisible ? MEDIUM_REFETCH_MS : false
+  const snapshotRefetchInterval = isPageVisible ? SNAPSHOT_REFETCH_MS : false
+  const tradesRefetchInterval = isPageVisible ? TRADES_REFETCH_MS : false
+
   const summaryQuery = useQuery({
     queryKey: ['portfolio-summary', ownerAddress, chainEnv, subaccountName],
     enabled: Boolean(enabled && ownerAddress),
+    refetchInterval: mediumRefetchInterval,
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: true,
     queryFn: async () => {
       const client = getNadoClient?.()
       if (!client) throw new Error('Nado client unavailable')
@@ -80,6 +114,9 @@ export function usePortfolioData({
       {
         queryKey: ['portfolio-positions', ownerAddress, chainEnv, subaccountName],
         enabled: Boolean(enabled && ownerAddress),
+        refetchInterval: mediumRefetchInterval,
+        refetchIntervalInBackground: false,
+        refetchOnWindowFocus: true,
         queryFn: async () => {
           const client = getNadoClient?.()
           if (!client) throw new Error('Nado client unavailable')
@@ -97,6 +134,9 @@ export function usePortfolioData({
       {
         queryKey: ['portfolio-orders', ownerAddress, chainEnv, subaccountName],
         enabled: Boolean(enabled && ownerAddress),
+        refetchInterval: mediumRefetchInterval,
+        refetchIntervalInBackground: false,
+        refetchOnWindowFocus: true,
         queryFn: async () => {
           const client = getNadoClient?.()
           if (!client) throw new Error('Nado client unavailable')
@@ -114,6 +154,9 @@ export function usePortfolioData({
       {
         queryKey: ['portfolio-trades', ownerAddress, chainEnv, subaccountName],
         enabled: Boolean(enabled && ownerAddress),
+        refetchInterval: tradesRefetchInterval,
+        refetchIntervalInBackground: false,
+        refetchOnWindowFocus: true,
         queryFn: async () => {
           const client = getNadoClient?.()
           if (!client) throw new Error('Nado client unavailable')
@@ -139,6 +182,9 @@ export function usePortfolioData({
       {
         queryKey: ['portfolio-pnl', ownerAddress, chainEnv, subaccountName],
         enabled: Boolean(enabled && ownerAddress),
+        refetchInterval: snapshotRefetchInterval,
+        refetchIntervalInBackground: false,
+        refetchOnWindowFocus: true,
         queryFn: async () => {
           const client = getNadoClient?.()
           if (!client) throw new Error('Nado client unavailable')
@@ -155,6 +201,9 @@ export function usePortfolioData({
       {
         queryKey: ['portfolio-risk', ownerAddress, chainEnv, subaccountName],
         enabled: Boolean(enabled && ownerAddress),
+        refetchInterval: snapshotRefetchInterval,
+        refetchIntervalInBackground: false,
+        refetchOnWindowFocus: true,
         queryFn: async () => {
           const client = getNadoClient?.()
           if (!client) throw new Error('Nado client unavailable')
@@ -199,6 +248,7 @@ export function usePortfolioData({
       productIdsForSymbols.join(','),
     ],
     enabled: Boolean(enabled && ownerAddress && productIdsForSymbols.length),
+    staleTime: SYMBOLS_STALE_MS,
     queryFn: async () => {
       const client = getNadoClient?.()
       if (!client) throw new Error('Nado client unavailable')
@@ -233,6 +283,9 @@ export function usePortfolioData({
   const accountSnapshotQuery = useQuery({
     queryKey: ['portfolio-account-snapshot', ownerAddress, chainEnv, subaccountName],
     enabled: Boolean(enabled && ownerAddress),
+    refetchInterval: snapshotRefetchInterval,
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: true,
     queryFn: async () => {
       try {
         const client = getNadoClient?.()
@@ -253,6 +306,9 @@ export function usePortfolioData({
   const isolatedPositionsQuery = useQuery({
     queryKey: ['portfolio-isolated-positions', ownerAddress, chainEnv, subaccountName],
     enabled: Boolean(enabled && ownerAddress),
+    refetchInterval: mediumRefetchInterval,
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: true,
     queryFn: async () => {
       try {
         const client = getNadoClient?.()
@@ -278,6 +334,9 @@ export function usePortfolioData({
       productIdsForSymbols.join(','),
     ],
     enabled: Boolean(enabled && ownerAddress && productIdsForSymbols.length > 0),
+    refetchInterval: fastRefetchInterval,
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: true,
     queryFn: async () => {
       try {
         const client = getNadoClient?.()
@@ -299,6 +358,9 @@ export function usePortfolioData({
       productIdsForSymbols.join(','),
     ],
     enabled: Boolean(enabled && ownerAddress && productIdsForSymbols.length > 0),
+    refetchInterval: fastRefetchInterval,
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: true,
     queryFn: async () => {
       try {
         const client = getNadoClient?.()
@@ -320,6 +382,7 @@ export function usePortfolioData({
       productIdsForSymbols.join(','),
     ],
     enabled: Boolean(enabled && ownerAddress && productIdsForSymbols.length > 0),
+    staleTime: FUNDING_STALE_MS,
     queryFn: async () => {
       const client = getNadoClient?.()
       if (!client) throw new Error('Nado client unavailable')
@@ -369,6 +432,7 @@ export function usePortfolioData({
     enabled: Boolean(
       enabled && ownerAddress && spotTokenAddresses.length > 0,
     ),
+    staleTime: TOKEN_SYMBOLS_STALE_MS,
     queryFn: async () => {
       try {
         const client = getNadoClient?.()
