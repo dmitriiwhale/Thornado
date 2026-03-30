@@ -34,18 +34,6 @@ const C = {
   mono: 'font-mono text-xs text-slate-200 tabular-nums',
 }
 
-/** Prefer quote collateral (USDT in label); else first row. `balances` are spot-only. */
-function pickCollateralRow(balances) {
-  if (!balances?.length) return null
-  const bySymbol = balances.find(
-    (b) =>
-      String(b.symbol).toUpperCase().includes('USDT') ||
-      String(b.symbol).toUpperCase() === 'USDT0'
-  )
-  if (bySymbol) return bySymbol
-  return balances[0]
-}
-
 function AssetCell({ symbol, seed, nadoAppOrigin }) {
   return (
     <div className="flex items-center gap-2.5">
@@ -92,6 +80,19 @@ function scheduleIdlePrefetch(task, delayMs = 0) {
   }
 }
 
+function NadoSummaryRow({ label, value, valueClassName = '', children }) {
+  return (
+    <div className="flex items-center justify-between gap-3 py-1.5">
+      <div className="min-w-0 text-[13px] text-slate-300">{label}</div>
+      <div
+        className={`min-w-0 text-right font-mono text-[13px] tabular-nums text-slate-100 ${valueClassName}`}
+      >
+        {children ?? value ?? '—'}
+      </div>
+    </div>
+  )
+}
+
 export default function NadoPortfolioView({
   walletAddress,
   chainEnv,
@@ -108,15 +109,6 @@ export default function NadoPortfolioView({
   const [transferOpen, setTransferOpen] = useState(false)
 
   const chainId = CHAIN_ENV_TO_CHAIN[chainEnv]?.id
-
-  const um = portfolio.unifiedMargin
-  const usdtRow = pickCollateralRow(portfolio.balances)
-
-  const marginBarWidth = useMemo(() => {
-    const m = um?.maintenanceMarginUsagePercent ?? null
-    if (m == null) return 0
-    return Math.min(100, Math.max(0, m))
-  }, [um])
 
   const tabs = [
     { id: 'overview', label: 'Overview' },
@@ -221,8 +213,6 @@ export default function NadoPortfolioView({
       {mainTab === 'overview' && (
         <OverviewTab
           portfolio={portfolio}
-          marginBarWidth={marginBarWidth}
-          usdtRow={usdtRow}
           fmt={fmt}
           chainId={chainId}
           publicClient={publicClient}
@@ -263,8 +253,6 @@ export default function NadoPortfolioView({
 
 function OverviewTab({
   portfolio,
-  marginBarWidth,
-  usdtRow,
   fmt,
   chainId,
   publicClient,
@@ -274,8 +262,9 @@ function OverviewTab({
 }) {
   const [portfolioDataTab, setPortfolioDataTab] = useState('balances')
   const [commandCenterOpen, setCommandCenterOpen] = useState(false)
-  const um = portfolio.unifiedMargin
-  const loading = portfolio.queries.summary.isLoading
+  const summaryCard = portfolio.nadoSummary
+  const loading =
+    portfolio.queries.summary.isLoading || portfolio.queries.accountSnapshot?.isLoading
   const noSubaccount = portfolio.queries.summary.isSuccess && portfolio.summary?.exists === false
   const ordersError = portfolio.queries.orders?.error
   const positionsError =
@@ -311,176 +300,78 @@ function OverviewTab({
     () => buildCumulativeRealizedPnlSeries(portfolio.trades),
     [portfolio.trades],
   )
-  const derivedUnrealized = useMemo(() => {
-    const list = portfolio.positions ?? []
-    let sum = 0
-    let seen = false
-    for (const row of list) {
-      const v = Number(row?.pnl)
-      if (!Number.isFinite(v)) continue
-      sum += v
-      seen = true
-    }
-    return seen ? sum : null
-  }, [portfolio.positions])
-  const derivedBalancesValue = useMemo(() => {
-    const list = portfolio.balances ?? []
-    let sum = 0
-    let seen = false
-    for (const row of list) {
-      const v = Number(row?.usdValue)
-      if (!Number.isFinite(v)) continue
-      sum += v
-      seen = true
-    }
-    return seen ? sum : null
-  }, [portfolio.balances])
-  const derivedRealizedLoaded = useMemo(() => {
-    const list = portfolio.trades ?? []
-    let sum = 0
-    let seen = false
-    for (const row of list) {
-      const v = Number(row?.realizedPnl)
-      if (!Number.isFinite(v)) continue
-      sum += v
-      seen = true
-    }
-    return seen ? sum : null
-  }, [portfolio.trades])
-  const accountUnrealized = portfolio.pnl?.unrealized ?? derivedUnrealized ?? null
-  const accountEquity =
-    portfolio.pnl?.equity ??
-    portfolio.summary?.totalEquity ??
-    (derivedBalancesValue != null && accountUnrealized != null
-      ? derivedBalancesValue + accountUnrealized
-      : derivedBalancesValue) ??
-    null
-  const accountRealized = portfolio.pnl?.realized ?? derivedRealizedLoaded ?? null
-  const realizedLabel = portfolio.pnl?.realized != null ? 'Realized PnL' : 'Realized PnL (loaded)'
+  const maintenanceBarWidth = useMemo(() => {
+    const value = summaryCard?.maintenanceMarginUsagePercent ?? null
+    if (value == null) return 0
+    return Math.min(100, Math.max(0, value))
+  }, [summaryCard?.maintenanceMarginUsagePercent])
 
   return (
     <div className="flex flex-col gap-3">
-      <section className={`${C.card} p-4`}>
-        <h3 className={C.label}>Unified margin</h3>
-        {loading && (
-          <p className="mt-3 text-xs text-slate-500">Loading engine summary…</p>
-        )}
-        {!loading && noSubaccount && (
-          <p className="mt-3 text-xs text-amber-200/90">
-            No subaccount on engine yet — deposit on Nado first; margin metrics stay empty.
-          </p>
-        )}
-        {!loading && !noSubaccount && (
-          <div className="mt-3 grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <MetricCompact
-              label="Initial usage"
-              value={
-                um?.initialMarginUsagePercent != null
-                  ? fmt.percentPlain(um.initialMarginUsagePercent)
-                  : '—'
-              }
-            />
-            <div className="flex flex-col gap-1">
-              <span className={`${C.muted} text-xs`}>Maint. usage</span>
-              <div className="flex flex-wrap items-center gap-2">
-                <span className={`${C.mono} text-sm text-slate-100`}>
-                  {um?.maintenanceMarginUsagePercent != null
-                    ? fmt.percentPlain(um.maintenanceMarginUsagePercent)
-                    : '—'}
-                </span>
-                <div className="relative h-1.5 w-16 overflow-hidden rounded-full bg-white/10 sm:w-24">
-                  <div
-                    className="absolute inset-y-0 left-0 rounded-full bg-emerald-500/80"
-                    style={{
-                      width: `${
-                        um?.maintenanceMarginUsagePercent != null ? marginBarWidth : 0
-                      }%`,
-                    }}
-                  />
-                </div>
-              </div>
-            </div>
-            <MetricCompact
-              label="Maint. buffer"
-              value={
-                um?.availableMargin != null ? fmt.currency(um.availableMargin) : '—'
-              }
-            />
-            <MetricCompact
-              label="Maint. health"
-              value={
-                um?.fundsUntilLiquidation != null
-                  ? fmt.number(um.fundsUntilLiquidation, 4)
-                  : '—'
-              }
-            />
-          </div>
-        )}
-      </section>
-
       <section className={`${C.card} overflow-hidden p-0`}>
-        <div className="border-b border-white/[0.08] px-3 py-2">
-          <span className="text-xs font-medium text-slate-200">Account summary</span>
+        <div className="border-b border-white/[0.08] px-2.5 py-1.5">
+          <span className="text-xs font-medium text-slate-200">Account</span>
         </div>
-        <div className="px-3 py-3">
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-            <div>
-              <div className={C.muted + ' text-[10px]'}>Equity</div>
-              <div className={C.mono}>
-                {accountEquity != null ? fmt.currency(accountEquity) : '—'}
-              </div>
-            </div>
-            <div>
-              <div className={C.muted + ' text-[10px]'}>Unreal. PnL</div>
-              <div className={C.mono}>
-                {accountUnrealized != null ? fmt.signedCurrency(accountUnrealized) : '—'}
-              </div>
-            </div>
-            <div>
-              <div className={C.muted + ' text-[10px]'}>{realizedLabel}</div>
-              <div className={C.mono}>
-                {accountRealized != null ? fmt.signedCurrency(accountRealized) : '—'}
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Collateral snapshot */}
-      <section className={`${C.card} overflow-hidden p-0`}>
-        <div className="border-b border-white/[0.08] px-3 py-2">
-          <span className="text-xs font-medium text-slate-200">
-            {usdtRow?.symbol ? `${usdtRow.symbol} collateral` : 'Collateral'}
-          </span>
-        </div>
-        <div className="px-3 py-3">
-          {usdtRow ? (
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
-              <div>
-                <div className={C.muted + ' text-[10px]'}>Balance</div>
-                <div className={C.mono}>{fmt.number(usdtRow.total)}</div>
-              </div>
-              <div>
-                <div className={C.muted + ' text-[10px]'}>Value</div>
-                <div className={C.mono}>
-                  {usdtRow.usdValue != null ? fmt.currency(usdtRow.usdValue) : '—'}
+        <div className="px-2.5 py-1.5">
+          {loading && (
+            <p className="text-xs text-slate-500">Loading account summary…</p>
+          )}
+          {!loading && noSubaccount && (
+            <p className="text-xs text-amber-200/90">
+              No subaccount on engine yet — deposit on Nado first; margin metrics stay empty.
+            </p>
+          )}
+          {!loading && !noSubaccount && (
+            <div className="divide-y divide-white/[0.06]">
+              <NadoSummaryRow label="Balance" value={fmt.currency(summaryCard?.balanceUsd)} />
+              <NadoSummaryRow
+                label="Unrealized Perp PnL"
+                value={fmt.signedCurrency(summaryCard?.unrealizedPerpPnlUsd)}
+                valueClassName={
+                  summaryCard?.unrealizedPerpPnlUsd > 0
+                    ? 'text-emerald-300'
+                    : summaryCard?.unrealizedPerpPnlUsd < 0
+                      ? 'text-red-300'
+                      : ''
+                }
+              />
+              <NadoSummaryRow
+                label="Unrealized Spot PnL"
+                value={fmt.signedCurrency(summaryCard?.unrealizedSpotPnlUsd)}
+                valueClassName={
+                  summaryCard?.unrealizedSpotPnlUsd > 0
+                    ? 'text-emerald-300'
+                    : summaryCard?.unrealizedSpotPnlUsd < 0
+                      ? 'text-red-300'
+                      : ''
+                }
+              />
+              <NadoSummaryRow
+                label="Available Margin"
+                value={fmt.currency(summaryCard?.availableMarginUsd)}
+              />
+              <NadoSummaryRow label="Maintenance Margin & Ratio">
+                <div className="flex items-center justify-end gap-1.5">
+                  <span>
+                    {summaryCard?.maintenanceMarginUsd != null
+                      ? fmt.currency(summaryCard.maintenanceMarginUsd)
+                      : '—'}
+                  </span>
+                  <span className="text-slate-400">/</span>
+                  <span>
+                    {summaryCard?.maintenanceMarginUsagePercent != null
+                      ? fmt.percentPlain(summaryCard.maintenanceMarginUsagePercent)
+                      : '—'}
+                  </span>
+                  <div className="relative h-1 w-12 overflow-hidden rounded-full bg-white/10 sm:w-16">
+                    <div
+                      className="absolute inset-y-0 left-0 rounded-full bg-violet-400/80"
+                      style={{ width: `${maintenanceBarWidth}%` }}
+                    />
+                  </div>
                 </div>
-              </div>
-              <div>
-                <div className={C.muted + ' text-[10px]'}>Available</div>
-                <div className={C.mono}>{fmt.number(usdtRow.available)}</div>
-              </div>
-              <div>
-                <div className={C.muted + ' text-[10px]'}>Init. wgt</div>
-                <div className={C.mono}>{fmt.weightPercent(usdtRow.weightInitial)}</div>
-              </div>
-              <div>
-                <div className={C.muted + ' text-[10px]'}>Maint. wgt</div>
-                <div className={C.mono}>{fmt.weightPercent(usdtRow.weightMaintenance)}</div>
-              </div>
+              </NadoSummaryRow>
             </div>
-          ) : (
-            <p className={`${C.muted} text-center text-xs`}>No balance row yet.</p>
           )}
         </div>
       </section>
@@ -936,15 +827,6 @@ function HistoryTab({ portfolio, fmt, nadoAppOrigin }) {
         </div>
       )}
     </section>
-  )
-}
-
-function MetricCompact({ label, value }) {
-  return (
-    <div className="flex flex-col gap-0.5">
-      <span className={`${C.muted} text-[10px] uppercase tracking-wide`}>{label}</span>
-      <span className={`${C.mono} text-sm text-slate-100`}>{value}</span>
-    </div>
   )
 }
 

@@ -11,6 +11,7 @@ import {
   entryPriceFromNetEntryUnrealized,
   extractPerpSnapshotMetricsByProductId,
   extractPerpSnapshotByPositionKey,
+  extractTotalSpotUnrealizedPnlFromSnapshots,
   adaptSpotBalances,
   collectSpotTokenAddresses,
   adaptOrders,
@@ -731,6 +732,71 @@ export function usePortfolioData({
     [summaryQuery.data],
   )
 
+  const nadoSummary = useMemo(() => {
+    const initialHealthUsd = fromX18(summaryQuery.data?.health?.initial?.health)
+    const maintenanceLiabilitiesUsd = fromX18(summaryQuery.data?.health?.maintenance?.liabilities)
+    const spotUnrealizedFromSnapshots = extractTotalSpotUnrealizedPnlFromSnapshots(
+      accountSnapshotQuery.data,
+    )
+
+    let perpUnrealizedUsd = null
+    if (positions.length > 0) {
+      let sum = 0
+      let seen = false
+      for (const row of positions) {
+        const pnl = Number(row?.pnl)
+        if (!Number.isFinite(pnl)) continue
+        sum += pnl
+        seen = true
+      }
+      if (seen) perpUnrealizedUsd = sum
+    }
+
+    let balancesValueUsd = null
+    if (balances.length > 0) {
+      let sum = 0
+      let seen = false
+      for (const row of balances) {
+        const value = Number(row?.usdValue)
+        if (!Number.isFinite(value)) continue
+        sum += value
+        seen = true
+      }
+      if (seen) balancesValueUsd = sum
+    }
+
+    const balanceUsd =
+      pnl?.equity ??
+      summary?.totalEquity ??
+      (balancesValueUsd != null && perpUnrealizedUsd != null
+        ? balancesValueUsd + perpUnrealizedUsd
+        : balancesValueUsd) ??
+      null
+
+    return {
+      balanceUsd,
+      unrealizedPerpPnlUsd: perpUnrealizedUsd,
+      unrealizedSpotPnlUsd: spotUnrealizedFromSnapshots,
+      availableMarginUsd:
+        initialHealthUsd != null && Number.isFinite(initialHealthUsd)
+          ? Math.max(0, initialHealthUsd)
+          : unifiedMargin?.availableMargin ?? null,
+      maintenanceMarginUsd:
+        maintenanceLiabilitiesUsd != null && Number.isFinite(maintenanceLiabilitiesUsd)
+          ? maintenanceLiabilitiesUsd
+          : null,
+      maintenanceMarginUsagePercent: unifiedMargin?.maintenanceMarginUsagePercent ?? null,
+    }
+  }, [
+    accountSnapshotQuery.data,
+    balances,
+    pnl?.equity,
+    positions,
+    summary?.totalEquity,
+    summaryQuery.data,
+    unifiedMargin,
+  ])
+
   const queries = [
     summaryQuery,
     symbolsQuery,
@@ -775,6 +841,7 @@ export function usePortfolioData({
     pnl,
     risk,
     unifiedMargin,
+    nadoSummary,
     queries: {
       summary: summaryQuery,
       symbols: symbolsQuery,

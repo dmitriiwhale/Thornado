@@ -504,6 +504,23 @@ export function calcUnrealizedPnlFromSnapshotEvent(snapshotEvent, exitPrice) {
   return pnl
 }
 
+export function calcSpotUnrealizedPnlFromSnapshotEvent(
+  snapshotEvent,
+  oraclePrice = snapshotEvent?.state?.market?.product?.oraclePrice,
+) {
+  const productId = snapshotEvent?.productId
+  if (productId === 0 || productId === '0') return 0
+  const amount = toBigNumberish(snapshotEvent?.state?.postBalance?.amount)
+  const price = toBigNumberish(oraclePrice)
+  const netEntry = toBigNumberish(snapshotEvent?.trackedVars?.netEntryUnrealized)
+  if (!amount || !price || !netEntry || amount.isNaN() || price.isNaN() || netEntry.isNaN()) {
+    return null
+  }
+  const pnl = amount.multipliedBy(price).minus(netEntry)
+  const n = fromX18(pnl)
+  return n != null && Number.isFinite(n) ? n : null
+}
+
 export function calcRoeDenominatorUsdFromSnapshotEvent(snapshotEvent) {
   const netEntry = toBigNumberish(snapshotEvent?.trackedVars?.netEntryUnrealized)
   const longWeightInitial = toBigNumberish(snapshotEvent?.state?.market?.product?.longWeightInitial)
@@ -851,6 +868,33 @@ export function extractPerpSnapshotByPositionKey(snapshotResponse) {
   }
 
   return out
+}
+
+export function extractTotalSpotUnrealizedPnlFromSnapshots(snapshotResponse) {
+  const snapshots = snapshotResponse?.snapshots
+  if (!snapshots || typeof snapshots !== 'object') return null
+
+  let total = 0
+  let seen = false
+
+  for (const subHex of Object.keys(snapshots)) {
+    const byTs = snapshots[subHex]
+    if (!byTs || typeof byTs !== 'object') continue
+    for (const ts of Object.keys(byTs)) {
+      const shot = byTs[ts]
+      const balances = shot?.balances
+      if (!Array.isArray(balances)) continue
+      for (const ev of balances) {
+        if (ev?.isolated || ev?.state?.type !== 0) continue
+        const pnl = calcSpotUnrealizedPnlFromSnapshotEvent(ev)
+        if (pnl == null || !Number.isFinite(pnl)) continue
+        total += pnl
+        seen = true
+      }
+    }
+  }
+
+  return seen ? total : null
 }
 
 /**
