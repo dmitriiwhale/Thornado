@@ -8,6 +8,20 @@
 #   docker compose up -d
 
 services:
+  frontend:
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+    container_name: thornado-frontend
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_PORT:-5173}:5173"
+    environment:
+      VITE_API_PROXY_TARGET: http://gateway:3001
+    depends_on:
+      gateway:
+        condition: service_started
+
   postgres:
     image: postgres:16-alpine
     container_name: thornado-postgres

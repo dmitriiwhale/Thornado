@@ -47,6 +47,31 @@ npm run dev:all
 
 This runs the gateway and the client together (same as the old `npm run dev` behavior).
 
+## Run (frontend + gateway + postgres in Docker)
+
+Copy envs once:
+
+```bash
+cp .env.example .env
+```
+
+Then start the full stack:
+
+```bash
+docker compose up --build
+```
+
+Services:
+
+- Frontend (Vite): http://localhost:5173
+- Gateway API: http://localhost:3001
+- Postgres: localhost:5433 by default
+
+Notes:
+
+- The frontend container proxies `/api/*` to the `gateway` Compose service via `VITE_API_PROXY_TARGET=http://gateway:3001`.
+- Local host-based frontend development still defaults to proxying `/api/*` to `http://127.0.0.1:3001`.
+
 ## Run (client only, from `client/`)
 
 ```bash
