@@ -2,6 +2,9 @@
 
 THORNado is a React + Go visual concept for an AI trading terminal.
 
+RUN DOCKER: docker compose up --build
+AND OPEN Browser: http://localhost:5173/
+
 ## Prerequisites
 
 - **Node.js** (for the Vite/React client)
