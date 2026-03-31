@@ -528,6 +528,16 @@ export default function Landing({ scrollContainerRef }) {
               </div>
             </div>
           </div>
+          <div className="footer-credit-row">
+            <a
+              href="https://v8x.tech/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="footer-credit-link"
+            >
+              Made by V8X Team
+            </a>
+          </div>
         </footer>
       </div>
     </div>

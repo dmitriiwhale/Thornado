@@ -44,7 +44,6 @@ export default function App() {
 
   return (
     <>
-      {isLanding && allowHeavyEffects ? <LightningCursor /> : null}
       <div
         className="storm-theme relative isolate text-white"
         style={{

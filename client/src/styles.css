@@ -1107,6 +1107,27 @@ button { cursor: pointer; }
   text-shadow: 0 0 10px rgba(167, 139, 250, 0.22);
 }
 
+.landing-soft-copy .footer-credit-row {
+  display: flex;
+  justify-content: center;
+  padding-top: 1.45rem;
+}
+
+.landing-soft-copy .footer-credit-link {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(236, 240, 250, 0.92);
+  text-decoration: none;
+  transition: color 160ms ease, text-shadow 160ms ease;
+}
+
+.landing-soft-copy .footer-credit-link:hover {
+  color: rgba(252, 253, 255, 1);
+  text-shadow: 0 0 12px rgba(255, 255, 255, 0.22);
+}
+
 @keyframes footer-marquee-scroll {
   from { transform: translate3d(0, 0, 0); }
   to { transform: translate3d(-50%, 0, 0); }
