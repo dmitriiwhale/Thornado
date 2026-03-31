@@ -146,9 +146,20 @@ export default function Account() {
   const queryClient = useQueryClient()
 
   const invalidatePortfolio = useCallback(() => {
-    void queryClient.invalidateQueries({
-      predicate: (q) =>
-        Array.isArray(q.queryKey) && String(q.queryKey[0]).startsWith('portfolio-'),
+    const hotKeys = [
+      'portfolio-summary',
+      'portfolio-positions',
+      'portfolio-orders',
+      'portfolio-pnl',
+      'portfolio-risk',
+      'portfolio-account-snapshot',
+      'portfolio-isolated-positions',
+      'portfolio-latest-market-prices',
+      'portfolio-latest-oracle-prices',
+    ]
+
+    hotKeys.forEach((key) => {
+      void queryClient.invalidateQueries({ queryKey: [key] })
     })
   }, [queryClient])
   const {

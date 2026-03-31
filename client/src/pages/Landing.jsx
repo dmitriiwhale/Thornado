@@ -1,8 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import gsap from 'gsap'
-import { ScrollTrigger } from 'gsap/ScrollTrigger'
 import {
   Activity,
   BarChart3,
@@ -16,12 +14,7 @@ import {
 } from 'lucide-react'
 import ElectricButton from '../components/ElectricButton'
 import LiveBtcChart from '../components/LiveBtcChart'
-import ScrollReveal from '../components/ScrollReveal'
-import SplitTextScroll from '../components/SplitTextScroll'
 import nadoLogo from '../assets/nado.png'
-import getScrollContainer from '../utils/getScrollContainer'
-
-gsap.registerPlugin(ScrollTrigger)
 
 const stats = [
   { label: 'Latency', value: '12ms' },
@@ -130,7 +123,6 @@ export default function Landing({ scrollContainerRef }) {
   const [botMessages, setBotMessages] = useState([])
   const [thorStarted, setThorStarted] = useState(false)
   const [visibleThorCount, setVisibleThorCount] = useState(0)
-  const whySectionRef = useRef(null)
   const thorPanelRef = useRef(null)
 
   const handleBotMessage = useCallback((msg) => {
@@ -140,26 +132,6 @@ export default function Landing({ scrollContainerRef }) {
   const messagesToShow =
     botMessages.length > 0 ? botMessages : aiTrendMessagesFallback
   const visibleThorMessages = thorChatScenario.slice(0, visibleThorCount)
-  const executionTitleAnimation = {
-    scrollContainerRef,
-    splitType: 'chars',
-    delay: 16,
-    duration: 1.05,
-    threshold: 0,
-    rootMargin: '0px',
-    from: { opacity: 0, y: 24, filter: 'blur(6px)' },
-    to: { opacity: 1, y: 0, filter: 'blur(0px)' },
-  }
-  const executionLineAnimation = {
-    scrollContainerRef,
-    splitType: 'words,chars',
-    delay: 10,
-    duration: 0.95,
-    threshold: 0,
-    rootMargin: '0px',
-    from: { opacity: 0, y: 18, filter: 'blur(5px)' },
-    to: { opacity: 1, y: 0, filter: 'blur(0px)' },
-  }
   const sectionRevealPrimary = {
     initial: { opacity: 0, y: 16 },
     whileInView: { opacity: 1, y: 0 },
@@ -172,44 +144,6 @@ export default function Landing({ scrollContainerRef }) {
   }
   const viewportNear = { once: true, margin: '-40px' }
   const viewportDeep = { once: true, margin: '-60px' }
-
-  useEffect(() => {
-    const sectionEl = whySectionRef.current
-    if (!sectionEl) return undefined
-
-    const scroller = getScrollContainer(scrollContainerRef)
-
-    const rows = sectionEl.querySelectorAll('.value-row-card')
-    if (!rows.length) return undefined
-
-    const ctx = gsap.context(() => {
-      rows.forEach((row) => {
-        gsap.fromTo(
-          row,
-          {
-            opacity: 0.18,
-            y: 20,
-            filter: 'blur(4px)',
-          },
-          {
-            opacity: 1,
-            y: 0,
-            filter: 'blur(0px)',
-            ease: 'none',
-            scrollTrigger: {
-              trigger: row,
-              scroller,
-              start: 'top bottom-=8%',
-              end: 'top center+=18%',
-              scrub: true,
-            },
-          },
-        )
-      })
-    }, sectionEl)
-
-    return () => ctx.revert()
-  }, [scrollContainerRef])
 
   useEffect(() => {
     if (thorStarted) return undefined
@@ -337,7 +271,6 @@ export default function Landing({ scrollContainerRef }) {
         </motion.section>
 
         <motion.section
-          ref={whySectionRef}
           className="mt-20"
           {...sectionRevealPrimary}
           viewport={viewportDeep}
@@ -345,43 +278,37 @@ export default function Landing({ scrollContainerRef }) {
           <SectionLabel icon={Target}>Why traders switch</SectionLabel>
           <div className="mt-6 grid grid-cols-1 gap-8 lg:grid-cols-12">
             <div className="lg:col-span-7">
-              <ScrollReveal
-                scrollContainerRef={scrollContainerRef}
-                enableBlur
-                baseOpacity={0.16}
-                baseRotation={3.2}
-                blurStrength={6}
-                rotationStart="top 92%"
-                wordAnimationStart="top 86%"
-                containerClassName="!my-0"
-                textClassName="text-[clamp(1.95rem,3.8vw,2.35rem)] leading-tight font-semibold tracking-tight text-white"
-                rotationEnd="bottom center"
-                wordAnimationEnd="bottom center"
+              <motion.h2
+                className="text-[clamp(1.95rem,3.8vw,2.35rem)] leading-tight font-semibold tracking-tight text-white"
+                initial={{ opacity: 0, y: 18 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.35, ease: 'easeOut' }}
+                viewport={viewportNear}
               >
                 Read faster. Decide cleaner. Execute without friction.
-              </ScrollReveal>
-              <ScrollReveal
-                as="div"
-                scrollContainerRef={scrollContainerRef}
-                enableBlur
-                baseOpacity={0.08}
-                baseRotation={2}
-                blurStrength={4}
-                rotationStart="top 90%"
-                wordAnimationStart="top 84%"
-                containerClassName="!my-0 mt-3 max-w-[62ch]"
-                textClassName="text-base leading-8 text-slate-300 font-normal"
-                rotationEnd="bottom center"
-                wordAnimationEnd="bottom center"
+              </motion.h2>
+              <motion.p
+                className="mt-3 max-w-[62ch] text-base leading-8 text-slate-300"
+                initial={{ opacity: 0, y: 16 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.35, delay: 0.05, ease: 'easeOut' }}
+                viewport={viewportNear}
               >
                 Thornado is designed for focus. You keep context in one screen,
                 get concise AI guidance, and move from signal to position with less
                 hesitation and less interface noise.
-              </ScrollReveal>
+              </motion.p>
             </div>
             <div className="value-rows-column lg:col-span-5">
-              {valueRows.map((item) => (
-                <div key={item.title} className="marketing-row value-row-card">
+              {valueRows.map((item, index) => (
+                <motion.div
+                  key={item.title}
+                  className="marketing-row value-row-card"
+                  initial={{ opacity: 0, y: 18 }}
+                  whileInView={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.32, delay: index * 0.06, ease: 'easeOut' }}
+                  viewport={viewportNear}
+                >
                   <div className="flex h-full items-start gap-3">
                     <item.icon className="value-row-icon mt-0.5 h-[18px] w-[18px] shrink-0 text-violet-100" />
                     <div>
@@ -389,7 +316,7 @@ export default function Landing({ scrollContainerRef }) {
                       <p className="value-row-text mt-1 text-sm leading-6 text-slate-400">{item.text}</p>
                     </div>
                   </div>
-                </div>
+                </motion.div>
               ))}
             </div>
           </div>
@@ -403,15 +330,25 @@ export default function Landing({ scrollContainerRef }) {
           <SectionLabel icon={TrendingUp}>Execution flow</SectionLabel>
           <div className="mt-6 grid grid-cols-1 gap-10 lg:grid-cols-12 lg:gap-14">
             <div className="lg:col-span-6">
-              <SplitTextScroll
-                text="Simple flow from setup to execution"
-                tag="h3"
+              <motion.h3
                 className="execution-section-title text-white"
-                {...executionTitleAnimation}
-              />
+                initial={{ opacity: 0, y: 18 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.35, ease: 'easeOut' }}
+                viewport={viewportNear}
+              >
+                Simple flow from setup to execution
+              </motion.h3>
               <div className="execution-steps-list mt-6 space-y-5">
                 {executionSteps.map((step, idx) => (
-                  <div key={step.title} className="marketing-step">
+                  <motion.div
+                    key={step.title}
+                    className="marketing-step"
+                    initial={{ opacity: 0, y: 18 }}
+                    whileInView={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.32, delay: idx * 0.06, ease: 'easeOut' }}
+                    viewport={viewportNear}
+                  >
                     <div className="flex items-start gap-4">
                       <div className="execution-step-index mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-violet-200/30 text-[12px] font-semibold text-violet-200">
                         {idx + 1}
@@ -419,42 +356,37 @@ export default function Landing({ scrollContainerRef }) {
                       <div>
                         <div className="flex items-center gap-2">
                           <step.icon className="h-4 w-4 text-violet-200/80" />
-                          <SplitTextScroll
-                            text={step.title}
-                            tag="span"
-                            className="text-base font-semibold text-white"
-                            {...executionTitleAnimation}
-                          />
+                          <span className="text-base font-semibold text-white">{step.title}</span>
                         </div>
-                        <SplitTextScroll
-                          text={step.text}
-                          tag="p"
-                          className="mt-1 text-sm leading-6 text-slate-400"
-                          {...executionLineAnimation}
-                        />
+                        <p className="mt-1 text-sm leading-6 text-slate-400">{step.text}</p>
                       </div>
                     </div>
-                  </div>
+                  </motion.div>
                 ))}
               </div>
             </div>
             <div className="outcome-column lg:col-span-6">
-              <SplitTextScroll
-                text="Outcome snapshot"
-                tag="h3"
+              <motion.h3
                 className="execution-section-title text-white"
-                {...executionTitleAnimation}
-              />
+                initial={{ opacity: 0, y: 18 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.35, ease: 'easeOut' }}
+                viewport={viewportNear}
+              >
+                Outcome snapshot
+              </motion.h3>
               <ul className="outcome-list mt-6 text-base text-slate-200">
-                {outcomeNotes.map((note) => (
-                  <li key={note} className="marketing-note">
-                    <SplitTextScroll
-                      text={note}
-                      tag="span"
-                      className=""
-                      {...executionLineAnimation}
-                    />
-                  </li>
+                {outcomeNotes.map((note, index) => (
+                  <motion.li
+                    key={note}
+                    className="marketing-note"
+                    initial={{ opacity: 0, y: 14 }}
+                    whileInView={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.28, delay: index * 0.05, ease: 'easeOut' }}
+                    viewport={viewportNear}
+                  >
+                    {note}
+                  </motion.li>
                 ))}
               </ul>
             </div>

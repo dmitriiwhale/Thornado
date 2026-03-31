@@ -14,8 +14,12 @@ export default function Lightning({
     if (!canvas) return undefined
 
     const resizeCanvas = () => {
-      canvas.width = canvas.clientWidth
-      canvas.height = canvas.clientHeight
+      const dpr = Math.max(1, Math.min(window.devicePixelRatio || 1, 2))
+      const nextWidth = Math.max(1, Math.round(canvas.clientWidth * dpr))
+      const nextHeight = Math.max(1, Math.round(canvas.clientHeight * dpr))
+      if (canvas.width === nextWidth && canvas.height === nextHeight) return
+      canvas.width = nextWidth
+      canvas.height = nextHeight
     }
 
     resizeCanvas()
@@ -178,9 +182,14 @@ export default function Lightning({
 
     const startTime = performance.now()
     let frameId = 0
+    let isRunning = document.visibilityState !== 'hidden'
 
     const render = () => {
-      resizeCanvas()
+      if (!isRunning) {
+        frameId = 0
+        return
+      }
+
       gl.viewport(0, 0, canvas.width, canvas.height)
       gl.uniform2f(iResolutionLocation, canvas.width, canvas.height)
       gl.uniform1f(iTimeLocation, (performance.now() - startTime) / 1000.0)
@@ -193,10 +202,19 @@ export default function Lightning({
       frameId = requestAnimationFrame(render)
     }
 
+    const handleVisibilityChange = () => {
+      isRunning = document.visibilityState !== 'hidden'
+      if (isRunning && !frameId) {
+        frameId = requestAnimationFrame(render)
+      }
+    }
+
     frameId = requestAnimationFrame(render)
+    document.addEventListener('visibilitychange', handleVisibilityChange)
 
     return () => {
       cancelAnimationFrame(frameId)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
       window.removeEventListener('resize', resizeCanvas)
       gl.deleteBuffer(vertexBuffer)
       gl.deleteProgram(program)

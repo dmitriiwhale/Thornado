@@ -311,6 +311,19 @@ button { cursor: pointer; }
   opacity: 0.95;
 }
 
+.react-grid-item.resizing .solid-block,
+.react-grid-item.react-draggable-dragging .solid-block {
+  backdrop-filter: none !important;
+  box-shadow:
+    0 14px 32px rgba(3,5,16,0.26),
+    inset 0 1px 0 rgba(255,255,255,0.05) !important;
+}
+
+.react-grid-item.resizing .solid-block .solid-block-decor,
+.react-grid-item.react-draggable-dragging .solid-block .solid-block-decor {
+  opacity: 0.28;
+}
+
 .react-grid-item.react-grid-placeholder {
   background: rgba(139, 92, 246, 0.08) !important;
   border: 1.5px dashed rgba(196, 181, 253, 0.55) !important;
@@ -515,6 +528,12 @@ button { cursor: pointer; }
 
 .storm-webgl-lightning-viewport {
   overflow: hidden;
+}
+
+.storm-webgl-lightning-viewport-hero {
+  height: clamp(320px, 58vh, 620px);
+  -webkit-mask-image: linear-gradient(180deg, rgba(0,0,0,1) 0%, rgba(0,0,0,0.96) 62%, rgba(0,0,0,0) 100%);
+  mask-image: linear-gradient(180deg, rgba(0,0,0,1) 0%, rgba(0,0,0,0.96) 62%, rgba(0,0,0,0) 100%);
 }
 
 .storm-webgl-lightning-track {

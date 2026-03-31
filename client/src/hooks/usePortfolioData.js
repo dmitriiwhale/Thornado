@@ -38,14 +38,16 @@ function getInvoker(target, name) {
 }
 
 const FUNDING_PAGE_LIMIT = 200
-const FUNDING_MAX_PAGES = 200
-const FAST_REFETCH_MS = 5_000
-const MEDIUM_REFETCH_MS = 15_000
-const SNAPSHOT_REFETCH_MS = 30_000
-const TRADES_REFETCH_MS = 60_000
+const FUNDING_MAX_PAGES = 12
+const FUNDING_MAX_ROWS = 1_200
+const FAST_REFETCH_MS = 10_000
+const MEDIUM_REFETCH_MS = 30_000
+const SNAPSHOT_REFETCH_MS = 60_000
+const TRADES_REFETCH_MS = 120_000
 const SYMBOLS_STALE_MS = 5 * 60_000
 const FUNDING_STALE_MS = 15 * 60_000
 const TOKEN_SYMBOLS_STALE_MS = 60 * 60_000
+const REFETCH_ON_WINDOW_FOCUS = false
 
 async function callFirstAvailable(methods, args) {
   for (const candidate of methods) {
@@ -97,7 +99,7 @@ export function usePortfolioData({
     enabled: Boolean(enabled && ownerAddress),
     refetchInterval: mediumRefetchInterval,
     refetchIntervalInBackground: false,
-    refetchOnWindowFocus: true,
+    refetchOnWindowFocus: REFETCH_ON_WINDOW_FOCUS,
     queryFn: async () => {
       const client = getNadoClient?.()
       if (!client) throw new Error('Nado client unavailable')
@@ -117,7 +119,7 @@ export function usePortfolioData({
         enabled: Boolean(enabled && ownerAddress),
         refetchInterval: mediumRefetchInterval,
         refetchIntervalInBackground: false,
-        refetchOnWindowFocus: true,
+        refetchOnWindowFocus: REFETCH_ON_WINDOW_FOCUS,
         queryFn: async () => {
           const client = getNadoClient?.()
           if (!client) throw new Error('Nado client unavailable')
@@ -137,7 +139,7 @@ export function usePortfolioData({
         enabled: Boolean(enabled && ownerAddress),
         refetchInterval: mediumRefetchInterval,
         refetchIntervalInBackground: false,
-        refetchOnWindowFocus: true,
+        refetchOnWindowFocus: REFETCH_ON_WINDOW_FOCUS,
         queryFn: async () => {
           const client = getNadoClient?.()
           if (!client) throw new Error('Nado client unavailable')
@@ -157,7 +159,7 @@ export function usePortfolioData({
         enabled: Boolean(enabled && ownerAddress),
         refetchInterval: tradesRefetchInterval,
         refetchIntervalInBackground: false,
-        refetchOnWindowFocus: true,
+        refetchOnWindowFocus: REFETCH_ON_WINDOW_FOCUS,
         queryFn: async () => {
           const client = getNadoClient?.()
           if (!client) throw new Error('Nado client unavailable')
@@ -185,7 +187,7 @@ export function usePortfolioData({
         enabled: Boolean(enabled && ownerAddress),
         refetchInterval: snapshotRefetchInterval,
         refetchIntervalInBackground: false,
-        refetchOnWindowFocus: true,
+        refetchOnWindowFocus: REFETCH_ON_WINDOW_FOCUS,
         queryFn: async () => {
           const client = getNadoClient?.()
           if (!client) throw new Error('Nado client unavailable')
@@ -204,7 +206,7 @@ export function usePortfolioData({
         enabled: Boolean(enabled && ownerAddress),
         refetchInterval: snapshotRefetchInterval,
         refetchIntervalInBackground: false,
-        refetchOnWindowFocus: true,
+        refetchOnWindowFocus: REFETCH_ON_WINDOW_FOCUS,
         queryFn: async () => {
           const client = getNadoClient?.()
           if (!client) throw new Error('Nado client unavailable')
@@ -246,7 +248,7 @@ export function usePortfolioData({
       ownerAddress,
       chainEnv,
       subaccountName,
-      productIdsForSymbols.join(','),
+      productIdsForSymbols,
     ],
     enabled: Boolean(enabled && ownerAddress && productIdsForSymbols.length),
     staleTime: SYMBOLS_STALE_MS,
@@ -286,7 +288,7 @@ export function usePortfolioData({
     enabled: Boolean(enabled && ownerAddress),
     refetchInterval: snapshotRefetchInterval,
     refetchIntervalInBackground: false,
-    refetchOnWindowFocus: true,
+    refetchOnWindowFocus: REFETCH_ON_WINDOW_FOCUS,
     queryFn: async () => {
       try {
         const client = getNadoClient?.()
@@ -309,7 +311,7 @@ export function usePortfolioData({
     enabled: Boolean(enabled && ownerAddress),
     refetchInterval: mediumRefetchInterval,
     refetchIntervalInBackground: false,
-    refetchOnWindowFocus: true,
+    refetchOnWindowFocus: REFETCH_ON_WINDOW_FOCUS,
     queryFn: async () => {
       try {
         const client = getNadoClient?.()
@@ -332,12 +334,12 @@ export function usePortfolioData({
       ownerAddress,
       chainEnv,
       subaccountName,
-      productIdsForSymbols.join(','),
+      productIdsForSymbols,
     ],
     enabled: Boolean(enabled && ownerAddress && productIdsForSymbols.length > 0),
     refetchInterval: fastRefetchInterval,
     refetchIntervalInBackground: false,
-    refetchOnWindowFocus: true,
+    refetchOnWindowFocus: REFETCH_ON_WINDOW_FOCUS,
     queryFn: async () => {
       try {
         const client = getNadoClient?.()
@@ -356,12 +358,12 @@ export function usePortfolioData({
       ownerAddress,
       chainEnv,
       subaccountName,
-      productIdsForSymbols.join(','),
+      productIdsForSymbols,
     ],
     enabled: Boolean(enabled && ownerAddress && productIdsForSymbols.length > 0),
     refetchInterval: fastRefetchInterval,
     refetchIntervalInBackground: false,
-    refetchOnWindowFocus: true,
+    refetchOnWindowFocus: REFETCH_ON_WINDOW_FOCUS,
     queryFn: async () => {
       try {
         const client = getNadoClient?.()
@@ -380,7 +382,7 @@ export function usePortfolioData({
       ownerAddress,
       chainEnv,
       subaccountName,
-      productIdsForSymbols.join(','),
+      productIdsForSymbols,
     ],
     enabled: Boolean(enabled && ownerAddress && productIdsForSymbols.length > 0),
     staleTime: FUNDING_STALE_MS,
@@ -407,6 +409,13 @@ export function usePortfolioData({
 
         if (Array.isArray(res?.fundingPayments)) fundingPayments.push(...res.fundingPayments)
         if (Array.isArray(res?.interestPayments)) interestPayments.push(...res.interestPayments)
+
+        if (
+          fundingPayments.length >= FUNDING_MAX_ROWS ||
+          interestPayments.length >= FUNDING_MAX_ROWS
+        ) {
+          break
+        }
 
         const nextCursor = res?.meta?.nextCursor ?? res?.nextCursor ?? null
         const hasMore = Boolean(res?.meta?.hasMore ?? nextCursor)

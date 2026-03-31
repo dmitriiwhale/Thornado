@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import ReactGridLayout from 'react-grid-layout';
 import 'react-grid-layout/css/styles.css';
 import 'react-resizable/css/styles.css';
@@ -755,24 +755,32 @@ const TerminalGrid = () => {
     }
   }, [presets]);
 
-  const activeIds = layout.map(l => l.i);
-  const renderedLayout = layout.map(item => ({
-    ...item,
-    static: locked,
-    isDraggable: !locked,
-    isResizable: !locked,
-  }));
+  const activeIds = useMemo(() => layout.map((l) => l.i), [layout]);
+  const renderedLayout = useMemo(
+    () =>
+      layout.map((item) => ({
+        ...item,
+        static: locked,
+        isDraggable: !locked,
+        isResizable: !locked,
+      })),
+    [layout, locked],
+  );
 
-  const addWidget = id => {
+  const commitLayout = useCallback((nextLayout) => {
+    setLayout(normalizeLayout(nextLayout));
+  }, []);
+
+  const addWidget = useCallback((id) => {
     if (!DEFS[id]) return;
     setLayout((prev) => {
       if (prev.some((item) => item.i === id)) return prev;
       const maxY = prev.reduce((m, l) => Math.max(m, l.y + l.h), 0);
       return [...prev, { i: id, x: 0, y: maxY, ...DEFS[id].dfl }];
     });
-  };
+  }, []);
 
-  const savePreset = (name) => {
+  const savePreset = useCallback((name) => {
     const clean = name.trim().slice(0, 40);
     if (!clean) return { ok: false, message: 'Name is required.' };
 
@@ -798,9 +806,9 @@ const TerminalGrid = () => {
     setPresets((prev) => [{ id, name: clean, updatedAt: now, layout: snapshot }, ...prev]);
     setActivePresetId(id);
     return { ok: true, message: `Saved "${clean}".` };
-  };
+  }, [layout, presets]);
 
-  const loadPreset = (presetId) => {
+  const loadPreset = useCallback((presetId) => {
     const preset = presets.find((p) => p.id === presetId);
     if (!preset) return;
 
@@ -811,12 +819,12 @@ const TerminalGrid = () => {
     setActivePresetId(presetId);
     setShowPanel(false);
     setShowPresetPanel(false);
-  };
+  }, [presets]);
 
-  const deletePreset = (presetId) => {
+  const deletePreset = useCallback((presetId) => {
     setPresets((prev) => prev.filter((p) => p.id !== presetId));
     setActivePresetId((prev) => (prev === presetId ? null : prev));
-  };
+  }, []);
 
   return (
     <div className={`flex flex-1 flex-col ${C.bg} min-h-0`}>
@@ -897,7 +905,6 @@ const TerminalGrid = () => {
         <ReactGridLayout
           className="layout"
           layout={renderedLayout}
-          onLayoutChange={locked ? undefined : setLayout}
           cols={12}
           rowHeight={88}
           width={containerWidth}
@@ -908,6 +915,8 @@ const TerminalGrid = () => {
           resizeHandles={['se', 'sw', 'ne', 'nw']}
           compactType={null}
           preventCollision={true}
+          onDragStop={locked ? undefined : commitLayout}
+          onResizeStop={locked ? undefined : commitLayout}
         >
           {layout.map(({ i }) => {
             const def = DEFS[i];
