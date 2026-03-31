@@ -417,24 +417,21 @@ button { cursor: pointer; }
 
 .storm-backdrop {
   background:
-    radial-gradient(circle at top, rgba(32, 21, 78, 0.3), transparent 30%),
-    linear-gradient(180deg, #050610 0%, #09071a 24%, #110b2b 58%, #05070d 100%);
+    linear-gradient(180deg, #030406 0%, #040507 18%, #050608 42%, #040506 68%, #020304 100%);
 }
 
 .storm-sky-base {
   background:
-    radial-gradient(circle at 18% 20%, rgba(58, 49, 138, 0.34), transparent 26%),
-    radial-gradient(circle at 66% 14%, rgba(71, 45, 163, 0.24), transparent 22%),
-    radial-gradient(circle at 74% 68%, rgba(65, 37, 121, 0.2), transparent 24%),
-    linear-gradient(180deg, rgba(6, 7, 18, 0.18) 0%, rgba(5, 7, 18, 0.4) 48%, rgba(4, 6, 16, 0.7) 100%);
+    radial-gradient(circle at 18% 18%, rgba(20, 20, 28, 0.18), transparent 18%),
+    radial-gradient(circle at 66% 12%, rgba(24, 24, 34, 0.12), transparent 16%),
+    linear-gradient(180deg, rgba(8, 8, 10, 0.12) 0%, rgba(8, 8, 10, 0.16) 38%, rgba(6, 6, 8, 0.36) 68%, rgba(3, 4, 5, 0.78) 100%);
 }
 
 .storm-sky-veil {
   background:
-    radial-gradient(circle at 50% 32%, rgba(110, 85, 209, 0.1), transparent 18%),
-    radial-gradient(circle at 25% 70%, rgba(44, 78, 140, 0.16), transparent 22%),
-    linear-gradient(180deg, rgba(2, 3, 8, 0.1) 0%, rgba(2, 4, 10, 0.52) 100%);
-  mix-blend-mode: screen;
+    radial-gradient(circle at 50% 74%, rgba(14, 14, 18, 0.12), transparent 20%),
+    linear-gradient(180deg, rgba(4, 4, 6, 0.04) 0%, rgba(5, 5, 6, 0.12) 40%, rgba(4, 4, 5, 0.42) 100%);
+  mix-blend-mode: normal;
 }
 
 .storm-cloudbank,
@@ -447,10 +444,10 @@ button { cursor: pointer; }
 
 .storm-cloudbank {
   background:
-    radial-gradient(circle at 30% 45%, rgba(53, 42, 122, 0.8) 0%, rgba(33, 23, 88, 0.44) 42%, rgba(10, 10, 24, 0) 78%),
-    radial-gradient(circle at 68% 52%, rgba(21, 26, 72, 0.42) 0%, rgba(7, 10, 28, 0) 62%);
+    radial-gradient(circle at 30% 45%, rgba(28, 28, 38, 0.72) 0%, rgba(14, 14, 18, 0.38) 42%, rgba(10, 10, 12, 0) 78%),
+    radial-gradient(circle at 68% 52%, rgba(18, 18, 24, 0.34) 0%, rgba(8, 8, 10, 0) 62%);
   filter: blur(44px);
-  opacity: 0.88;
+  opacity: 0.7;
 }
 
 .storm-cloudbank-1 {
@@ -489,7 +486,7 @@ button { cursor: pointer; }
 
 .storm-mist {
   background:
-    radial-gradient(circle at 50% 50%, rgba(171, 168, 255, 0.14) 0%, rgba(93, 79, 166, 0.12) 38%, rgba(12, 12, 22, 0) 72%);
+    radial-gradient(circle at 50% 50%, rgba(64, 64, 78, 0.1) 0%, rgba(28, 28, 34, 0.08) 38%, rgba(10, 10, 12, 0) 72%);
   filter: blur(80px);
 }
 
@@ -510,10 +507,10 @@ button { cursor: pointer; }
 }
 
 .storm-noise {
-  opacity: 0.07;
+  opacity: 0.04;
   background-image:
     radial-gradient(rgba(255, 255, 255, 0.55) 0.55px, transparent 0.8px),
-    radial-gradient(rgba(149, 132, 255, 0.28) 0.65px, transparent 1px);
+    radial-gradient(rgba(140, 140, 160, 0.14) 0.65px, transparent 1px);
   background-size: 16px 16px, 28px 28px;
   background-position: 0 0, 10px 14px;
   mix-blend-mode: soft-light;
@@ -521,9 +518,9 @@ button { cursor: pointer; }
 }
 
 .storm-webgl-lightning {
-  opacity: 0.56;
+  opacity: 0.52;
   mix-blend-mode: screen;
-  filter: blur(1.45px) brightness(0.7);
+  filter: blur(1.6px) brightness(0.62);
 }
 
 .storm-webgl-lightning-viewport {
@@ -531,9 +528,11 @@ button { cursor: pointer; }
 }
 
 .storm-webgl-lightning-viewport-hero {
-  height: clamp(320px, 58vh, 620px);
-  -webkit-mask-image: linear-gradient(180deg, rgba(0,0,0,1) 0%, rgba(0,0,0,0.96) 62%, rgba(0,0,0,0) 100%);
-  mask-image: linear-gradient(180deg, rgba(0,0,0,1) 0%, rgba(0,0,0,0.96) 62%, rgba(0,0,0,0) 100%);
+  height: clamp(420px, 74vh, 840px);
+  background:
+    linear-gradient(180deg, rgba(8, 8, 12, 0.01) 0%, rgba(8, 8, 12, 0.03) 34%, rgba(6, 6, 8, 0.18) 64%, rgba(4, 4, 5, 0.68) 90%, rgba(2, 3, 4, 0.94) 100%);
+  -webkit-mask-image: linear-gradient(180deg, rgba(0,0,0,1) 0%, rgba(0,0,0,0.98) 36%, rgba(0,0,0,0.84) 62%, rgba(0,0,0,0.34) 84%, rgba(0,0,0,0) 100%);
+  mask-image: linear-gradient(180deg, rgba(0,0,0,1) 0%, rgba(0,0,0,0.98) 36%, rgba(0,0,0,0.84) 62%, rgba(0,0,0,0.34) 84%, rgba(0,0,0,0) 100%);
 }
 
 .storm-webgl-lightning-track {
@@ -544,13 +543,14 @@ button { cursor: pointer; }
 }
 
 .storm-lightning-soft-blur {
-  background: linear-gradient(180deg, rgba(7, 6, 18, 0.08) 0%, rgba(6, 5, 15, 0.13) 100%);
-  backdrop-filter: blur(2.6px);
+  background:
+    linear-gradient(180deg, rgba(8, 8, 10, 0.03) 0%, rgba(8, 8, 10, 0.06) 34%, rgba(6, 6, 8, 0.18) 68%, rgba(3, 4, 5, 0.62) 100%);
+  backdrop-filter: blur(2.8px);
 }
 
 .storm-global-tint {
   background:
-    linear-gradient(180deg, rgba(8, 7, 20, 0.4) 0%, rgba(10, 9, 24, 0.32) 48%, rgba(7, 7, 16, 0.45) 100%);
+    linear-gradient(180deg, rgba(6, 6, 8, 0.26) 0%, rgba(7, 7, 8, 0.16) 28%, rgba(7, 7, 8, 0.22) 54%, rgba(5, 5, 6, 0.44) 78%, rgba(2, 3, 4, 0.7) 100%);
   backdrop-filter: blur(2.35px);
 }
 
