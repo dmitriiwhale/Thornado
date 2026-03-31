@@ -10,7 +10,7 @@ const NAV_LINKS = [
   { label: 'Terminal', to: '/terminal' },
   { label: 'AI Signals', to: null },
   { label: 'Strategy Lab', to: null },
-  { label: 'Docs', to: null },
+  { label: 'Docs', href: 'https://docs.thornado.xyz' },
 ];
 
 const navLinkClass = ({ isActive }) =>
@@ -65,7 +65,7 @@ export default function Navbar() {
         {/* Nav links — centered */}
         <nav className="relative hidden lg:flex items-center gap-1 pb-2">
           <div className="pointer-events-none absolute bottom-0 left-0 right-0 h-px bg-gradient-to-r from-violet-300/0 via-violet-200/45 to-violet-300/0" />
-          {NAV_LINKS.map(({ label, to }) => {
+          {NAV_LINKS.map(({ label, to, href }) => {
             if (to) {
               return (
                 <NavLink
@@ -86,6 +86,20 @@ export default function Navbar() {
                     </>
                   )}
                 </NavLink>
+              );
+            }
+            if (href) {
+              return (
+                <a
+                  key={label}
+                  href={href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="relative rounded-md px-3 py-1.5 text-sm font-medium text-slate-400 transition-all duration-200 hover:text-slate-100 hover:shadow-[0_0_18px_rgba(167,139,250,0.18)]"
+                  style={{ textShadow: '0 0 0 rgba(0,0,0,0)' }}
+                >
+                  {label}
+                </a>
               );
             }
             return (
