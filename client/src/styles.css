@@ -433,8 +433,8 @@ button { cursor: pointer; }
   height: clamp(420px, 74vh, 840px);
   background:
     linear-gradient(180deg, rgba(8, 8, 12, 0.01) 0%, rgba(8, 8, 12, 0.03) 34%, rgba(6, 6, 8, 0.18) 64%, rgba(4, 4, 5, 0.68) 90%, rgba(2, 3, 4, 0.94) 100%);
-  -webkit-mask-image: linear-gradient(180deg, rgba(0,0,0,1) 0%, rgba(0,0,0,0.98) 36%, rgba(0,0,0,0.84) 62%, rgba(0,0,0,0.34) 84%, rgba(0,0,0,0) 100%);
-  mask-image: linear-gradient(180deg, rgba(0,0,0,1) 0%, rgba(0,0,0,0.98) 36%, rgba(0,0,0,0.84) 62%, rgba(0,0,0,0.34) 84%, rgba(0,0,0,0) 100%);
+  -webkit-mask-image: none;
+  mask-image: none;
 }
 
 .storm-webgl-lightning-track {
@@ -445,15 +445,13 @@ button { cursor: pointer; }
 }
 
 .storm-lightning-soft-blur {
-  background:
-    linear-gradient(180deg, rgba(8, 8, 10, 0.03) 0%, rgba(8, 8, 10, 0.06) 34%, rgba(6, 6, 8, 0.18) 68%, rgba(3, 4, 5, 0.62) 100%);
-  backdrop-filter: blur(2.8px);
+  background: none;
+  backdrop-filter: none;
 }
 
 .storm-global-tint {
-  background:
-    linear-gradient(180deg, rgba(6, 6, 8, 0.26) 0%, rgba(7, 7, 8, 0.16) 28%, rgba(7, 7, 8, 0.22) 54%, rgba(5, 5, 6, 0.44) 78%, rgba(2, 3, 4, 0.7) 100%);
-  backdrop-filter: blur(2.35px);
+  background: none;
+  backdrop-filter: none;
 }
 
 .storm-strike-zone {
@@ -916,8 +914,8 @@ button { cursor: pointer; }
 }
 
 .landing-soft-copy .cta-shell {
-  border-top: 1px solid rgba(196, 181, 253, 0.2);
-  border-bottom: 1px solid rgba(196, 181, 253, 0.14);
+  border-top: 0;
+  border-bottom: 0;
 }
 
 .landing-soft-copy .contact-links-shell {
@@ -951,9 +949,9 @@ button { cursor: pointer; }
   justify-content: center;
   height: 34px;
   padding: 0 0.95rem;
-  border: 1px solid rgba(196, 181, 253, 0.3);
+  border: 1px solid rgba(196, 181, 253, 0.16);
   border-radius: 999px;
-  background: rgba(62, 45, 126, 0.2);
+  background: transparent;
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.12em;
@@ -964,13 +962,13 @@ button { cursor: pointer; }
 }
 
 .landing-soft-copy .contact-link-chip:hover {
-  border-color: rgba(236, 228, 255, 0.95);
-  background: rgba(86, 62, 163, 0.28);
+  border-color: rgba(236, 228, 255, 0.32);
+  background: transparent;
   color: rgba(248, 250, 255, 1);
 }
 
 .landing-soft-copy .landing-footer-marquee {
-  border-top: 1px solid rgba(196, 181, 253, 0.18);
+  border-top: 0;
   padding-top: 0.78rem;
   overflow: hidden;
 }
@@ -979,16 +977,16 @@ button { cursor: pointer; }
   position: relative;
   overflow: hidden;
   width: 100%;
-  -webkit-mask-image: linear-gradient(90deg, transparent 0%, black 7%, black 93%, transparent 100%);
-  mask-image: linear-gradient(90deg, transparent 0%, black 7%, black 93%, transparent 100%);
+  -webkit-mask-image: none;
+  mask-image: none;
 }
 
 .landing-soft-copy .footer-marquee-track {
   display: flex;
   width: max-content;
   white-space: nowrap;
-  will-change: transform;
-  transform: translate3d(0, 0, 0);
+  will-change: auto;
+  transform: none;
   animation: footer-marquee-scroll 42s linear infinite;
 }
 
@@ -1006,7 +1004,7 @@ button { cursor: pointer; }
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: rgba(208, 214, 232, 0.8);
-  text-shadow: 0 0 10px rgba(167, 139, 250, 0.22);
+  text-shadow: none;
 }
 
 .landing-soft-copy .footer-credit-row {
@@ -1027,7 +1025,7 @@ button { cursor: pointer; }
 
 .landing-soft-copy .footer-credit-link:hover {
   color: rgba(252, 253, 255, 1);
-  text-shadow: 0 0 12px rgba(255, 255, 255, 0.22);
+  text-shadow: none;
 }
 
 @keyframes footer-marquee-scroll {
