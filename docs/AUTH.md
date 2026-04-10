@@ -91,6 +91,24 @@ Cookie: **`thornado_auth`**, HttpOnly, `Path=/`, SameSite=Lax, срок жизн
 
 Данных кроме адреса в JWT сейчас нет — при необходимости профиль расширяется отдельно (БД и т.д.).
 
+### Execution API через Go gateway
+
+Go gateway проксирует торговые execute-запросы в внутренний Rust сервис (`gateway/execution`) и передаёт туда адрес сессии в заголовке `X-Thornado-Session-Address`.
+
+| Метод | Путь | Назначение |
+|-------|------|------------|
+| `POST` | `/api/execution/execute` | Обычные execute в Nado gateway (`place_order`, `cancel`, `withdraw`, `link_signer` и т.д.) с серверной проверкой `sender` и подписи. |
+| `POST` | `/api/execution/execute/trigger` | Trigger execute в Nado trigger gateway (stop/take и отмены trigger-ордеров). |
+| `GET` | `/api/execution/context` | Контекст сабаккаунта (owner/subaccount/linked signer). По умолчанию owner берётся из серверной сессии. |
+| `GET` | `/api/execution/capabilities` | Поддерживаемые execute и типы ордеров в THORNado execution gateway. |
+| `GET` | `/api/profile/execution-context` | То же, что `/api/execution/context`, но в профиле пользователя. |
+
+Валидация в Rust execution gateway:
+
+1. `sender` в payload обязан принадлежать адресy из JWT-сессии.
+2. EIP-712 подпись execute/order должна восстанавливаться в owner или в `linkedSigner` этого subaccount.
+3. Для v1 допускаются `limit`, `ioc (market)`, `post_only`, `reduce_only`, `stop/take` (через trigger endpoint); `fok` и `twap` отклоняются на gateway.
+
 ## Переменные окружения gateway
 
 | Переменная | Назначение |
@@ -100,6 +118,7 @@ Cookie: **`thornado_auth`**, HttpOnly, `Path=/`, SameSite=Lax, срок жизн
 | `SIWE_CHAIN_IDS` или `SIWE_CHAIN_ID` | Разрешённые chain ID для подписи входа (список через запятую). |
 | `CORS_ORIGINS` | Origin фронтенда для запросов с cookies. |
 | `COOKIE_SECURE` | `1` или `true` — флаг `Secure` у cookie (нужен для HTTPS). |
+| `EXECUTION_SERVICE_URL` | URL внутреннего Rust execution gateway (по умолчанию `http://127.0.0.1:3003`). |
 | `PORT` | Порт gateway (по умолчанию `3001`). |
 
 ## Краткий чеклист для нового кода

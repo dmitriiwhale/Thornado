@@ -4,6 +4,8 @@ const path = require('node:path')
 const isWindows = process.platform === 'win32'
 const npmCmd = isWindows ? 'npm.cmd' : 'npm'
 const gatewayDir = path.join(__dirname, 'gateway')
+const executionDir = path.join(__dirname, 'gateway', 'execution')
+const chartDir = path.join(__dirname, 'gateway', 'chart')
 
 const children = []
 let shuttingDown = false
@@ -52,5 +54,7 @@ function run(name, command, args, options = {}) {
 process.on('SIGINT', () => shutdown(0))
 process.on('SIGTERM', () => shutdown(0))
 
+run('execution', 'cargo', ['run'], { cwd: executionDir })
+run('chart', 'cargo', ['run'], { cwd: chartDir })
 run('gateway', 'go', ['run', '.'], { cwd: gatewayDir })
 run('client', npmCmd, ['run', 'dev', '--prefix', 'client'])

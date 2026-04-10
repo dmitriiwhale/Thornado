@@ -301,10 +301,19 @@ func main() {
 	auth.POST("/logout", postLogout)
 	auth.GET("/me", getMe, requireAuth)
 
+	executionProxy := newExecutionProxy()
+
 	profile := api.Group("/profile", requireAuth)
 	profile.GET("/avatar", getAvatar)
 	profile.PUT("/avatar", putAvatar)
 	profile.DELETE("/avatar", deleteAvatar)
+	profile.GET("/execution-context", executionProxy.getProfileContext)
+
+	execution := api.Group("/execution", requireAuth)
+	execution.POST("/execute", executionProxy.postExecute)
+	execution.POST("/execute/trigger", executionProxy.postExecuteTrigger)
+	execution.GET("/context", executionProxy.getContext)
+	execution.GET("/capabilities", executionProxy.getCapabilities)
 
 	port := os.Getenv("PORT")
 	if port == "" {

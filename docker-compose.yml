@@ -1,4 +1,4 @@
-# Postgres + gateway. Copy .env.example to .env and adjust if needed.
+# TimescaleDB + gateway. Copy .env.example to .env and adjust if needed.
 #
 # Only database:
 #   docker compose up postgres -d
@@ -23,7 +23,7 @@ services:
         condition: service_started
 
   postgres:
-    image: postgres:16-alpine
+    image: timescale/timescaledb:latest-pg16
     container_name: thornado-postgres
     restart: unless-stopped
     environment:
@@ -43,6 +43,45 @@ services:
       retries: 10
       start_period: 10s
 
+  execution:
+    build:
+      context: ..
+      dockerfile: thornado/gateway/execution/Dockerfile
+    container_name: thornado-execution
+    restart: unless-stopped
+    ports:
+      - "${EXECUTION_PORT:-3003}:3003"
+    environment:
+      EXECUTION_BIND_ADDR: "0.0.0.0:3003"
+      EXECUTION_NETWORK: ${EXECUTION_NETWORK:-test}
+      EXECUTION_NADO_GATEWAY_URL: ${EXECUTION_NADO_GATEWAY_URL:-}
+      EXECUTION_NADO_TRIGGER_URL: ${EXECUTION_NADO_TRIGGER_URL:-}
+
+  chart:
+    build:
+      context: ..
+      dockerfile: thornado/gateway/chart/Dockerfile
+    container_name: thornado-chart
+    restart: unless-stopped
+    ports:
+      - "${CHART_PORT:-3004}:3004"
+    environment:
+      CHART_BIND_ADDR: "0.0.0.0:3004"
+      CHART_DATABASE_URL: postgres://${POSTGRES_USER:-thornado}:${POSTGRES_PASSWORD:-thornado}@postgres:5432/${POSTGRES_DB:-thornado}?sslmode=disable
+      CHART_NETWORK: ${CHART_NETWORK:-test}
+      CHART_NADO_WS_URL: ${CHART_NADO_WS_URL:-}
+      CHART_NADO_ARCHIVE_URL: ${CHART_NADO_ARCHIVE_URL:-}
+      CHART_DEFAULT_GRANULARITY: ${CHART_DEFAULT_GRANULARITY:-60}
+      CHART_SUPPORTED_GRANULARITIES: ${CHART_SUPPORTED_GRANULARITIES:-60,300,900,3600,7200,14400,86400}
+      CHART_HISTORY_LIMIT: ${CHART_HISTORY_LIMIT:-500}
+      CHART_CACHE_CAPACITY: ${CHART_CACHE_CAPACITY:-1500}
+      CHART_PREWARM_ALL: ${CHART_PREWARM_ALL:-false}
+      CHART_PREWARM_SYMBOLS: ${CHART_PREWARM_SYMBOLS:-}
+      CHART_PREWARM_GRANULARITIES: ${CHART_PREWARM_GRANULARITIES:-60}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   gateway:
     build:
       context: ./gateway
@@ -58,9 +97,14 @@ services:
       JWT_SECRET: ${JWT_SECRET:-dev-only-change-me}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}
       SIWE_DOMAIN: ${SIWE_DOMAIN:-localhost:5173}
+      EXECUTION_SERVICE_URL: ${EXECUTION_SERVICE_URL:-http://execution:3003}
     depends_on:
       postgres:
         condition: service_healthy
+      execution:
+        condition: service_started
+      chart:
+        condition: service_started
 
 volumes:
   thornado_pgdata:
