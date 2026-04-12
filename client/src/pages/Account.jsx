@@ -204,7 +204,7 @@ export default function Account() {
 
   const portfolio = usePortfolioData({
     getNadoClient,
-    enabled: canQueryNadoEngine,
+    enabled: canShowNadoSummarySection,
     ownerAddress: address,
     chainEnv,
     subaccountName: 'default',
@@ -216,7 +216,7 @@ export default function Account() {
     portfolio.summary.exists === false
 
   const nadoEngineCheckLoading =
-    canQueryNadoEngine && portfolio.queries.summary.isLoading
+    canShowNadoSummarySection && portfolio.queries.summary.isLoading
 
   const nadoAppOrigin =
     chainEnv === 'inkMainnet' ? 'https://app.nado.xyz' : 'https://testnet.nado.xyz'

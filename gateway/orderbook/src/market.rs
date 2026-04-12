@@ -30,7 +30,7 @@ pub struct SymbolDirectory {
 pub async fn load_symbol_directory(mode: &ClientMode) -> Result<SymbolDirectory> {
     let client = NadoClient::new(mode.clone());
     let symbols = client
-        .get_symbols(None, Some("perp".to_string()))
+        .get_symbols(None, None)
         .await
         .map_err(|err| anyhow!("failed to query symbols from Nado: {err}"))?;
 
@@ -62,7 +62,7 @@ pub async fn load_symbol_directory(mode: &ClientMode) -> Result<SymbolDirectory>
     list.dedup_by(|a, b| a.symbol == b.symbol);
 
     if list.is_empty() {
-        anyhow::bail!("no perp symbols returned from Nado");
+        anyhow::bail!("no symbols returned from Nado");
     }
 
     Ok(SymbolDirectory {

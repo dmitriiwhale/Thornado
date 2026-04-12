@@ -193,14 +193,22 @@ export function NadoLinkedSignerProvider({ children }) {
 
   const getNadoClient = useCallback(() => {
     if (!publicClient || !walletClient) return null
+    const usableLinkedSignerWalletClient =
+      engineSignerMatchesLocal ? linkedSignerWalletClient : null
     return createNadoClient(chainEnv, {
       publicClient,
       walletClient,
-      ...(linkedSignerWalletClient
-        ? { linkedSignerWalletClient }
+      ...(usableLinkedSignerWalletClient
+        ? { linkedSignerWalletClient: usableLinkedSignerWalletClient }
         : {}),
     })
-  }, [chainEnv, publicClient, walletClient, linkedSignerWalletClient])
+  }, [
+    chainEnv,
+    publicClient,
+    walletClient,
+    linkedSignerWalletClient,
+    engineSignerMatchesLocal,
+  ])
 
   const value = useMemo(
     () => ({

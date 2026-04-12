@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
-import { useQueries, useQuery } from '@tanstack/react-query'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import {
   adaptPerpPositionsFromBalances,
   adaptCanonicalPerpPositions,
@@ -11,57 +11,31 @@ import {
   entryPriceFromNetEntryUnrealized,
   extractPerpSnapshotMetricsByProductId,
   extractPerpSnapshotByPositionKey,
-  extractTotalSpotUnrealizedPnlFromSnapshots,
-  adaptSpotBalances,
-  collectSpotTokenAddresses,
+  adaptFundingPayments,
   adaptOrders,
   adaptPnl,
   adaptPositions,
   adaptRisk,
+  adaptSpotBalances,
   adaptSummary,
   adaptTrades,
-  adaptFundingPayments,
+  collectSpotTokenAddresses,
   deriveUnifiedMargin,
+  extractTotalSpotUnrealizedPnlFromSnapshots,
   fromX18,
   isNonZeroOpenPosition,
   normalizePerpMarketLabel,
   perpPositionKey,
   pickEstimatedExitPrice,
-  toBigNumberish,
   toNumber,
 } from '../lib/portfolioAdapters.js'
 import { fetchErc20Symbols } from '../lib/erc20TokenSymbols.js'
 
-function getInvoker(target, name) {
-  const fn = target?.[name]
-  return typeof fn === 'function' ? fn.bind(target) : null
-}
-
-const FUNDING_PAGE_LIMIT = 200
-const FUNDING_MAX_PAGES = 12
-const FUNDING_MAX_ROWS = 1_200
-const FAST_REFETCH_MS = 10_000
-const MEDIUM_REFETCH_MS = 30_000
 const SNAPSHOT_REFETCH_MS = 60_000
-const TRADES_REFETCH_MS = 120_000
-const SYMBOLS_STALE_MS = 5 * 60_000
-const FUNDING_STALE_MS = 15 * 60_000
 const TOKEN_SYMBOLS_STALE_MS = 60 * 60_000
 const REFETCH_ON_WINDOW_FOCUS = false
-
-async function callFirstAvailable(methods, args) {
-  for (const candidate of methods) {
-    try {
-      const v = candidate?.()
-      if (typeof v === 'function') {
-        return await v(args)
-      }
-    } catch {
-      // Try next known method to stay compatible across SDK versions.
-    }
-  }
-  return null
-}
+const WS_RECONNECT_BASE_MS = 1_000
+const WS_RECONNECT_MAX_MS = 10_000
 
 function useDocumentVisibility() {
   const [isVisible, setIsVisible] = useState(() => {
@@ -81,6 +55,105 @@ function useDocumentVisibility() {
   return isVisible
 }
 
+function normalizeSubaccountName(name) {
+  const value = String(name ?? 'default').trim()
+  return value.length > 0 ? value : 'default'
+}
+
+function buildPortfolioSnapshotPath(subaccountName) {
+  const path = '/api/portfolio/snapshot'
+  const params = new URLSearchParams()
+  const safeName = normalizeSubaccountName(subaccountName)
+  if (safeName) params.set('subaccount_name', safeName)
+  const qs = params.toString()
+  return qs ? `${path}?${qs}` : path
+}
+
+function buildPortfolioWsUrl(subaccountName) {
+  if (typeof window === 'undefined') return null
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+  const url = new URL(`${protocol}//${window.location.host}/api/portfolio/ws`)
+  const safeName = normalizeSubaccountName(subaccountName)
+  if (safeName) url.searchParams.set('subaccount_name', safeName)
+  return url.toString()
+}
+
+async function fetchPortfolioSnapshot({ subaccountName, signal }) {
+  const response = await fetch(buildPortfolioSnapshotPath(subaccountName), {
+    method: 'GET',
+    credentials: 'include',
+    signal,
+  })
+
+  if (!response.ok) {
+    let message =
+      response.status === 401
+        ? 'Sign in required'
+        : `Portfolio gateway error (${response.status})`
+
+    try {
+      const payload = await response.json()
+      const upstream = payload?.error
+      if (typeof upstream === 'string' && upstream.trim().length > 0) {
+        message = upstream.trim()
+      }
+    } catch {
+      // Keep default message.
+    }
+
+    throw new Error(message)
+  }
+
+  return response.json()
+}
+
+function safeJsonParse(raw) {
+  if (typeof raw !== 'string') return null
+  try {
+    return JSON.parse(raw)
+  } catch {
+    return null
+  }
+}
+
+function normalizeEnvelope(payload) {
+  if (!payload || typeof payload !== 'object') return null
+  const portfolio = payload?.portfolio
+  if (!portfolio || typeof portfolio !== 'object') return null
+
+  const parsedAsOf = toNumber(payload?.as_of_ms ?? payload?.asOfMs)
+  const asOfMs =
+    parsedAsOf != null && Number.isFinite(parsedAsOf)
+      ? Math.max(0, Math.trunc(parsedAsOf))
+      : Date.now()
+
+  return {
+    asOfMs,
+    cause: String(payload?.cause ?? 'snapshot'),
+    portfolio,
+  }
+}
+
+function pickLatestEnvelope(prev, next) {
+  if (!prev) return next
+  if (!next) return prev
+  return next.asOfMs >= prev.asOfMs ? next : prev
+}
+
+function asFiniteNumber(value) {
+  const parsed = toNumber(value)
+  return parsed != null && Number.isFinite(parsed) ? parsed : null
+}
+
+function createQueryLike({ isLoading, error, isSuccess, refetch }) {
+  return {
+    isLoading: Boolean(isLoading),
+    error: error ?? null,
+    isSuccess: Boolean(isSuccess),
+    refetch,
+  }
+}
+
 export function usePortfolioData({
   getNadoClient,
   enabled,
@@ -89,450 +162,280 @@ export function usePortfolioData({
   subaccountName = 'default',
 }) {
   const isPageVisible = useDocumentVisibility()
-  const fastRefetchInterval = isPageVisible ? FAST_REFETCH_MS : false
-  const mediumRefetchInterval = isPageVisible ? MEDIUM_REFETCH_MS : false
-  const snapshotRefetchInterval = isPageVisible ? SNAPSHOT_REFETCH_MS : false
-  const tradesRefetchInterval = isPageVisible ? TRADES_REFETCH_MS : false
+  const safeSubaccountName = normalizeSubaccountName(subaccountName)
+  const shouldLoad = Boolean(enabled)
 
-  const summaryQuery = useQuery({
-    queryKey: ['portfolio-summary', ownerAddress, chainEnv, subaccountName],
-    enabled: Boolean(enabled && ownerAddress),
-    refetchInterval: mediumRefetchInterval,
+  const snapshotQuery = useQuery({
+    queryKey: ['portfolio-summary', ownerAddress, chainEnv, safeSubaccountName],
+    enabled: shouldLoad,
+    refetchInterval: isPageVisible ? SNAPSHOT_REFETCH_MS : false,
     refetchIntervalInBackground: false,
     refetchOnWindowFocus: REFETCH_ON_WINDOW_FOCUS,
-    queryFn: async () => {
-      const client = getNadoClient?.()
-      if (!client) throw new Error('Nado client unavailable')
-      return client.subaccount.getSubaccountSummary({
-        subaccountOwner: ownerAddress,
-        subaccountName,
-      })
-    },
+    queryFn: ({ signal }) =>
+      fetchPortfolioSnapshot({
+        subaccountName: safeSubaccountName,
+        signal,
+      }),
   })
 
-  const rawBalances = summaryQuery.data?.balances ?? null
+  const [liveEnvelope, setLiveEnvelope] = useState(null)
+  const [wsStatus, setWsStatus] = useState('idle')
+  const [wsRuntimeError, setWsRuntimeError] = useState(null)
+  const reconnectAttemptRef = useRef(0)
 
-  const [positionsQuery, ordersQuery, tradesQuery, pnlQuery, riskQuery] = useQueries({
-    queries: [
-      {
-        queryKey: ['portfolio-positions', ownerAddress, chainEnv, subaccountName],
-        enabled: Boolean(enabled && ownerAddress),
-        refetchInterval: mediumRefetchInterval,
-        refetchIntervalInBackground: false,
-        refetchOnWindowFocus: REFETCH_ON_WINDOW_FOCUS,
-        queryFn: async () => {
-          const client = getNadoClient?.()
-          if (!client) throw new Error('Nado client unavailable')
-          return callFirstAvailable(
-            [
-              () => getInvoker(client?.subaccount, 'getSubaccountPositions'),
-              () => getInvoker(client?.subaccount, 'getPositions'),
-              () => getInvoker(client?.portfolio, 'getPositions'),
-              () => getInvoker(client?.account, 'getPositions'),
-            ],
-            { subaccountOwner: ownerAddress, subaccountName },
-          )
-        },
-      },
-      {
-        queryKey: ['portfolio-orders', ownerAddress, chainEnv, subaccountName],
-        enabled: Boolean(enabled && ownerAddress),
-        refetchInterval: mediumRefetchInterval,
-        refetchIntervalInBackground: false,
-        refetchOnWindowFocus: REFETCH_ON_WINDOW_FOCUS,
-        queryFn: async () => {
-          const client = getNadoClient?.()
-          if (!client) throw new Error('Nado client unavailable')
-          return callFirstAvailable(
-            [
-              () => getInvoker(client?.subaccount, 'getSubaccountOrders'),
-              () => getInvoker(client?.orders, 'getOpenOrders'),
-              () => getInvoker(client?.order, 'getOpenOrders'),
-              () => getInvoker(client?.portfolio, 'getOpenOrders'),
-            ],
-            { subaccountOwner: ownerAddress, subaccountName },
-          )
-        },
-      },
-      {
-        queryKey: ['portfolio-trades', ownerAddress, chainEnv, subaccountName],
-        enabled: Boolean(enabled && ownerAddress),
-        refetchInterval: tradesRefetchInterval,
-        refetchIntervalInBackground: false,
-        refetchOnWindowFocus: REFETCH_ON_WINDOW_FOCUS,
-        queryFn: async () => {
-          const client = getNadoClient?.()
-          if (!client) throw new Error('Nado client unavailable')
-          const indexer = client.context?.indexerClient
-          if (typeof indexer?.getPaginatedSubaccountMatchEvents === 'function') {
-            return indexer.getPaginatedSubaccountMatchEvents({
-              subaccountOwner: ownerAddress,
-              subaccountName,
-              limit: 50,
-            })
-          }
-          return callFirstAvailable(
-            [
-              () => getInvoker(client?.subaccount, 'getSubaccountTrades'),
-              () => getInvoker(client?.trades, 'getTrades'),
-              () => getInvoker(client?.archive, 'getTrades'),
-              () => getInvoker(client?.portfolio, 'getTradeHistory'),
-            ],
-            { subaccountOwner: ownerAddress, subaccountName, limit: 50 },
-          )
-        },
-      },
-      {
-        queryKey: ['portfolio-pnl', ownerAddress, chainEnv, subaccountName],
-        enabled: Boolean(enabled && ownerAddress),
-        refetchInterval: snapshotRefetchInterval,
-        refetchIntervalInBackground: false,
-        refetchOnWindowFocus: REFETCH_ON_WINDOW_FOCUS,
-        queryFn: async () => {
-          const client = getNadoClient?.()
-          if (!client) throw new Error('Nado client unavailable')
-          return callFirstAvailable(
-            [
-              () => getInvoker(client?.subaccount, 'getSubaccountPnl'),
-              () => getInvoker(client?.portfolio, 'getPnl'),
-              () => getInvoker(client?.account, 'getPnl'),
-            ],
-            { subaccountOwner: ownerAddress, subaccountName },
-          )
-        },
-      },
-      {
-        queryKey: ['portfolio-risk', ownerAddress, chainEnv, subaccountName],
-        enabled: Boolean(enabled && ownerAddress),
-        refetchInterval: snapshotRefetchInterval,
-        refetchIntervalInBackground: false,
-        refetchOnWindowFocus: REFETCH_ON_WINDOW_FOCUS,
-        queryFn: async () => {
-          const client = getNadoClient?.()
-          if (!client) throw new Error('Nado client unavailable')
-          return callFirstAvailable(
-            [
-              () => getInvoker(client?.subaccount, 'getSubaccountRisk'),
-              () => getInvoker(client?.portfolio, 'getRisk'),
-              () => getInvoker(client?.account, 'getRisk'),
-            ],
-            { subaccountOwner: ownerAddress, subaccountName },
-          )
-        },
-      },
-    ],
-  })
+  useEffect(() => {
+    setLiveEnvelope(null)
+    setWsRuntimeError(null)
+    setWsStatus('idle')
+    reconnectAttemptRef.current = 0
 
-  const tradeProductIds = useMemo(() => {
-    const ev = tradesQuery.data?.events
-    if (!Array.isArray(ev)) return []
-    const ids = ev.map((e) => e?.productId ?? e?.product_id ?? null).filter((x) => x != null)
-    return Array.from(new Set(ids)).sort((a, b) => Number(a) - Number(b))
-  }, [tradesQuery.data])
+    if (!shouldLoad) {
+      return undefined
+    }
 
-  const productIdsForSymbols = useMemo(() => {
-    const fromBalances =
-      Array.isArray(rawBalances) && rawBalances.length > 0
-        ? rawBalances.map((b) => b?.productId ?? b?.product_id ?? null).filter((x) => x != null)
-        : []
-    const uniq = Array.from(new Set([...fromBalances, ...tradeProductIds]))
-    return uniq.sort((a, b) => Number(a) - Number(b))
-  }, [rawBalances, tradeProductIds])
+    let stopped = false
+    let ws = null
+    let reconnectTimer = null
 
-  /** Large `productIds` arrays can yield incomplete `symbols` from the engine in one call. */
-  const SYMBOL_QUERY_CHUNK = 48
+    const connect = () => {
+      if (stopped) return
 
-  const symbolsQuery = useQuery({
-    queryKey: [
-      'portfolio-symbols',
-      ownerAddress,
-      chainEnv,
-      subaccountName,
-      productIdsForSymbols,
-    ],
-    enabled: Boolean(enabled && ownerAddress && productIdsForSymbols.length),
-    staleTime: SYMBOLS_STALE_MS,
-    queryFn: async () => {
-      const client = getNadoClient?.()
-      if (!client) throw new Error('Nado client unavailable')
-      const ec = client.context.engineClient
-      const ids = productIdsForSymbols
-      const merged = { symbols: {} }
-      for (let i = 0; i < ids.length; i += SYMBOL_QUERY_CHUNK) {
-        const chunk = ids.slice(i, i + SYMBOL_QUERY_CHUNK)
-        const res = await ec.getSymbols({ productIds: chunk })
-        const obj = res?.symbols ?? {}
-        if (obj && typeof obj === 'object') {
-          Object.assign(merged.symbols, obj)
+      const wsUrl = buildPortfolioWsUrl(safeSubaccountName)
+      if (!wsUrl) return
+
+      setWsStatus(reconnectAttemptRef.current > 0 ? 'reconnecting' : 'connecting')
+
+      ws = new WebSocket(wsUrl)
+
+      ws.onopen = () => {
+        if (stopped) return
+        reconnectAttemptRef.current = 0
+        setWsRuntimeError(null)
+        setWsStatus('connected')
+      }
+
+      ws.onmessage = (event) => {
+        if (stopped) return
+        const payload = safeJsonParse(event.data)
+        if (!payload || typeof payload !== 'object') return
+
+        const messageType = String(payload?.type ?? '').trim().toLowerCase()
+
+        if (messageType === 'snapshot' || messageType === 'update') {
+          const nextEnvelope = normalizeEnvelope(payload)
+          if (!nextEnvelope) return
+          setLiveEnvelope((prev) => pickLatestEnvelope(prev, nextEnvelope))
+          setWsRuntimeError(null)
+          return
+        }
+
+        if (messageType === 'error') {
+          const msg = String(payload?.message ?? '').trim() || 'Portfolio websocket error'
+          setWsRuntimeError(new Error(msg))
+          return
+        }
+
+        if (messageType === 'status') {
+          const status = String(payload?.status ?? '').trim().toLowerCase()
+          if (status) setWsStatus(status)
         }
       }
-      return merged
-    },
-  })
+
+      ws.onclose = () => {
+        if (stopped) return
+        setWsStatus('disconnected')
+        reconnectAttemptRef.current += 1
+        const delay = Math.min(
+          WS_RECONNECT_MAX_MS,
+          WS_RECONNECT_BASE_MS * reconnectAttemptRef.current,
+        )
+        reconnectTimer = setTimeout(connect, delay)
+      }
+
+      ws.onerror = () => {
+        // onclose handles reconnect lifecycle.
+      }
+    }
+
+    connect()
+
+    return () => {
+      stopped = true
+      if (reconnectTimer != null) clearTimeout(reconnectTimer)
+      if (ws && ws.readyState <= WebSocket.OPEN) {
+        ws.close()
+      }
+    }
+  }, [shouldLoad, safeSubaccountName, ownerAddress])
+
+  const snapshotEnvelope = useMemo(
+    () => normalizeEnvelope(snapshotQuery.data),
+    [snapshotQuery.data],
+  )
+
+  const activeEnvelope = useMemo(() => {
+    if (!snapshotEnvelope) return liveEnvelope
+    if (!liveEnvelope) return snapshotEnvelope
+    return liveEnvelope.asOfMs >= snapshotEnvelope.asOfMs
+      ? liveEnvelope
+      : snapshotEnvelope
+  }, [snapshotEnvelope, liveEnvelope])
+
+  const payload = activeEnvelope?.portfolio ?? null
+  const summarySource = payload?.summary ?? null
+  const rawBalances = summarySource?.balances ?? []
+  const rawSymbols = payload?.symbols ?? null
+  const rawOrders = payload?.orders ?? []
+  const rawTrades = payload?.trades ?? []
+  const rawPnl = payload?.pnl ?? null
+  const rawRisk = payload?.risk ?? null
+  const rawCrossPositions = payload?.positions ?? []
+  const rawIsolatedPositions =
+    payload?.isolatedPositions ?? payload?.isolated_positions ?? []
+  const rawFundingRows =
+    payload?.funding?.fundingPayments ?? payload?.fundingPayments ?? []
+  const rawLatestMarketPrices =
+    payload?.latestMarketPrices ?? payload?.latest_market_prices ?? []
+  const rawLatestOraclePrices =
+    payload?.latestOraclePrices ?? payload?.latest_oracle_prices ?? []
+  const rawAccountSnapshot =
+    payload?.accountSnapshot ?? payload?.account_snapshot ?? null
 
   const symbolsByProductId = useMemo(() => {
-    const symbolsObj = symbolsQuery.data?.symbols ?? null
-    if (!symbolsObj || typeof symbolsObj !== 'object') return {}
-    const map = {}
-    for (const [key, v] of Object.entries(symbolsObj)) {
-      const pid = v?.productId ?? key
-      const sym = v?.symbol ?? v?.ticker ?? null
-      if (sym != null && pid != null) map[String(pid)] = String(sym)
+    const out = {}
+    const symbols = rawSymbols?.symbols
+    if (!symbols || typeof symbols !== 'object') return out
+
+    for (const [key, row] of Object.entries(symbols)) {
+      const productId = row?.productId ?? row?.product_id ?? key
+      const symbol = row?.symbol
+      if (productId == null || symbol == null) continue
+      const cleanSymbol = String(symbol).trim()
+      if (!cleanSymbol) continue
+      out[String(productId)] = cleanSymbol
     }
-    return map
-  }, [symbolsQuery.data])
 
-  /** Indexer snapshot: same perp vQuote/amount semantics as Nado app (engine summary can differ slightly). */
-  const accountSnapshotQuery = useQuery({
-    queryKey: ['portfolio-account-snapshot', ownerAddress, chainEnv, subaccountName],
-    enabled: Boolean(enabled && ownerAddress),
-    refetchInterval: snapshotRefetchInterval,
-    refetchIntervalInBackground: false,
-    refetchOnWindowFocus: REFETCH_ON_WINDOW_FOCUS,
-    queryFn: async () => {
-      try {
-        const client = getNadoClient?.()
-        if (!client) return null
-        const indexer = client.context?.indexerClient
-        if (typeof indexer?.getMultiSubaccountSnapshots !== 'function') return null
-        const ts = Math.floor(Date.now() / 1000)
-        return await indexer.getMultiSubaccountSnapshots({
-          subaccounts: [{ subaccountOwner: ownerAddress, subaccountName }],
-          timestamps: [ts],
-        })
-      } catch {
-        return null
-      }
-    },
-  })
+    return out
+  }, [rawSymbols])
 
-  const isolatedPositionsQuery = useQuery({
-    queryKey: ['portfolio-isolated-positions', ownerAddress, chainEnv, subaccountName],
-    enabled: Boolean(enabled && ownerAddress),
-    refetchInterval: mediumRefetchInterval,
-    refetchIntervalInBackground: false,
-    refetchOnWindowFocus: REFETCH_ON_WINDOW_FOCUS,
-    queryFn: async () => {
-      try {
-        const client = getNadoClient?.()
-        if (!client) return []
-        if (typeof client.subaccount?.getIsolatedPositions !== 'function') return []
-        const res = await client.subaccount.getIsolatedPositions({
-          subaccountOwner: ownerAddress,
-          subaccountName,
-        })
-        return Array.isArray(res?.isolatedPositions) ? res.isolatedPositions : []
-      } catch {
-        return []
-      }
-    },
-  })
+  const productIdsForScope = useMemo(() => {
+    const ids = new Set()
 
-  const latestMarketPricesQuery = useQuery({
-    queryKey: [
-      'portfolio-latest-market-prices',
-      ownerAddress,
-      chainEnv,
-      subaccountName,
-      productIdsForSymbols,
-    ],
-    enabled: Boolean(enabled && ownerAddress && productIdsForSymbols.length > 0),
-    refetchInterval: fastRefetchInterval,
-    refetchIntervalInBackground: false,
-    refetchOnWindowFocus: REFETCH_ON_WINDOW_FOCUS,
-    queryFn: async () => {
-      try {
-        const client = getNadoClient?.()
-        if (!client || typeof client.market?.getLatestMarketPrices !== 'function') return []
-        const res = await client.market.getLatestMarketPrices({ productIds: productIdsForSymbols })
-        return Array.isArray(res?.marketPrices) ? res.marketPrices : []
-      } catch {
-        return []
-      }
-    },
-  })
+    for (const row of rawBalances) {
+      const productId = row?.productId ?? row?.product_id
+      if (productId != null) ids.add(String(productId))
+    }
 
-  const latestOraclePricesQuery = useQuery({
-    queryKey: [
-      'portfolio-latest-oracle-prices',
-      ownerAddress,
-      chainEnv,
-      subaccountName,
-      productIdsForSymbols,
-    ],
-    enabled: Boolean(enabled && ownerAddress && productIdsForSymbols.length > 0),
-    refetchInterval: fastRefetchInterval,
-    refetchIntervalInBackground: false,
-    refetchOnWindowFocus: REFETCH_ON_WINDOW_FOCUS,
-    queryFn: async () => {
-      try {
-        const client = getNadoClient?.()
-        const indexer = client?.context?.indexerClient
-        if (!indexer || typeof indexer.getOraclePrices !== 'function') return []
-        return await indexer.getOraclePrices({ productIds: productIdsForSymbols })
-      } catch {
-        return []
-      }
-    },
-  })
+    const tradeEvents = Array.isArray(rawTrades?.events) ? rawTrades.events : []
+    for (const event of tradeEvents) {
+      const productId = event?.productId ?? event?.product_id
+      if (productId != null) ids.add(String(productId))
+    }
 
-  const fundingQuery = useQuery({
-    queryKey: [
-      'portfolio-funding',
-      ownerAddress,
-      chainEnv,
-      subaccountName,
-      productIdsForSymbols,
-    ],
-    enabled: Boolean(enabled && ownerAddress && productIdsForSymbols.length > 0),
-    staleTime: FUNDING_STALE_MS,
-    queryFn: async () => {
-      const client = getNadoClient?.()
-      if (!client) throw new Error('Nado client unavailable')
-      const indexer = client.context?.indexerClient
-      if (typeof indexer?.getPaginatedSubaccountInterestFundingPayments !== 'function') {
-        return { fundingPayments: [], interestPayments: [] }
-      }
-
-      const fundingPayments = []
-      const interestPayments = []
-      let startCursor = undefined
-
-      for (let page = 0; page < FUNDING_MAX_PAGES; page += 1) {
-        const res = await indexer.getPaginatedSubaccountInterestFundingPayments({
-          subaccountOwner: ownerAddress,
-          subaccountName,
-          productIds: productIdsForSymbols,
-          limit: FUNDING_PAGE_LIMIT,
-          ...(startCursor ? { startCursor } : {}),
-        })
-
-        if (Array.isArray(res?.fundingPayments)) fundingPayments.push(...res.fundingPayments)
-        if (Array.isArray(res?.interestPayments)) interestPayments.push(...res.interestPayments)
-
-        if (
-          fundingPayments.length >= FUNDING_MAX_ROWS ||
-          interestPayments.length >= FUNDING_MAX_ROWS
-        ) {
-          break
-        }
-
-        const nextCursor = res?.meta?.nextCursor ?? res?.nextCursor ?? null
-        const hasMore = Boolean(res?.meta?.hasMore ?? nextCursor)
-        if (!hasMore || !nextCursor) break
-        startCursor = nextCursor
-      }
-
-      return { fundingPayments, interestPayments }
-    },
-  })
+    return Array.from(ids)
+  }, [rawBalances, rawTrades])
 
   const spotTokenAddresses = useMemo(() => {
-    const raw = summaryQuery.data?.balances ?? []
-    const addrs = collectSpotTokenAddresses(raw)
-    return [...new Set(addrs.map((a) => String(a)))].sort()
-  }, [summaryQuery.data])
+    const addresses = collectSpotTokenAddresses(rawBalances)
+    return [...new Set(addresses.map((address) => String(address)))].sort()
+  }, [rawBalances])
 
   const spotTokenSymbolsQuery = useQuery({
     queryKey: [
       'portfolio-spot-erc20-symbols',
+      ownerAddress,
       chainEnv,
+      safeSubaccountName,
       spotTokenAddresses.join(','),
     ],
-    enabled: Boolean(
-      enabled && ownerAddress && spotTokenAddresses.length > 0,
-    ),
+    enabled: Boolean(shouldLoad && spotTokenAddresses.length > 0),
     staleTime: TOKEN_SYMBOLS_STALE_MS,
     queryFn: async () => {
       try {
         const client = getNadoClient?.()
-        const pc = client?.context?.publicClient
-        if (!pc) return {}
-        return await fetchErc20Symbols(pc, spotTokenAddresses)
+        const publicClient = client?.context?.publicClient
+        if (!publicClient) return {}
+        return await fetchErc20Symbols(publicClient, spotTokenAddresses)
       } catch {
         return {}
       }
     },
   })
 
-  const summary = useMemo(() => adaptSummary(summaryQuery.data), [summaryQuery.data])
+  const summary = useMemo(() => adaptSummary(summarySource), [summarySource])
+
   const balances = useMemo(
     () =>
       adaptSpotBalances(
-        summaryQuery.data?.balances ?? summary?.balances ?? [],
+        rawBalances,
         symbolsByProductId,
         spotTokenSymbolsQuery.data ?? {},
       ),
-    [
-      summaryQuery.data,
-      summary,
-      symbolsByProductId,
-      spotTokenSymbolsQuery.data,
-    ],
+    [rawBalances, symbolsByProductId, spotTokenSymbolsQuery.data],
   )
+
+  const latestMarketPricesByProductId = useMemo(() => {
+    const out = {}
+    for (const row of rawLatestMarketPrices) {
+      const productId = row?.productId ?? row?.product_id
+      if (productId == null) continue
+      out[String(productId)] = row
+    }
+    return out
+  }, [rawLatestMarketPrices])
+
+  const latestOraclePricesByProductId = useMemo(() => {
+    const out = {}
+    for (const row of rawLatestOraclePrices) {
+      const productId = row?.productId ?? row?.product_id
+      const price = asFiniteNumber(row?.oraclePrice ?? row?.oracle_price)
+      if (productId == null || price == null) continue
+      out[String(productId)] = price
+    }
+    return out
+  }, [rawLatestOraclePrices])
+
   const crossPositions = useMemo(
-    () => adaptPositions(positionsQuery.data),
-    [positionsQuery.data],
+    () => adaptPositions(rawCrossPositions),
+    [rawCrossPositions],
   )
 
   const snapshotMetricsByProductId = useMemo(
-    () => extractPerpSnapshotMetricsByProductId(accountSnapshotQuery.data),
-    [accountSnapshotQuery.data],
+    () => extractPerpSnapshotMetricsByProductId(rawAccountSnapshot),
+    [rawAccountSnapshot],
   )
 
   const snapshotByPositionKey = useMemo(
-    () => extractPerpSnapshotByPositionKey(accountSnapshotQuery.data),
-    [accountSnapshotQuery.data],
+    () => extractPerpSnapshotByPositionKey(rawAccountSnapshot),
+    [rawAccountSnapshot],
   )
 
   const perpPositionsFromBalances = useMemo(
     () =>
       adaptPerpPositionsFromBalances(
-        summaryQuery.data?.balances ?? [],
+        rawBalances,
         symbolsByProductId,
       ),
-    [summaryQuery.data, symbolsByProductId],
+    [rawBalances, symbolsByProductId],
   )
 
   const funding = useMemo(
-    () =>
-      adaptFundingPayments(fundingQuery.data?.fundingPayments ?? [], symbolsByProductId),
-    [fundingQuery.data, symbolsByProductId],
+    () => adaptFundingPayments(rawFundingRows, symbolsByProductId),
+    [rawFundingRows, symbolsByProductId],
   )
 
-  const latestMarketPricesByProductId = useMemo(() => {
-    const map = {}
-    for (const row of latestMarketPricesQuery.data ?? []) {
-      const pid = row?.productId
-      if (pid == null) continue
-      map[String(pid)] = row
-    }
-    return map
-  }, [latestMarketPricesQuery.data])
-
-  const latestOraclePricesByProductId = useMemo(() => {
-    const map = {}
-    for (const row of latestOraclePricesQuery.data ?? []) {
-      const pid = row?.productId
-      const oraclePrice = toNumber(row?.oraclePrice)
-      if (pid == null || oraclePrice == null || !Number.isFinite(oraclePrice)) continue
-      map[String(pid)] = oraclePrice
-    }
-    return map
-  }, [latestOraclePricesQuery.data])
-
-  /** USD net funding (indexer snapshot tracked vars); payment-sum fallback if snapshot missing. */
   const fundingUsdByProductId = useMemo(() => {
     const fromSnap = {}
-    for (const [pid, metrics] of Object.entries(snapshotMetricsByProductId)) {
+    for (const [productId, metrics] of Object.entries(snapshotMetricsByProductId)) {
       if (metrics?.fundingUsd != null && Number.isFinite(metrics.fundingUsd)) {
-        fromSnap[pid] = metrics.fundingUsd
+        fromSnap[productId] = metrics.fundingUsd
       }
     }
+
     const fromPayments = aggregateFundingPaymentsUsdByProductId(funding)
     const out = { ...fromPayments }
-    for (const k of Object.keys(fromSnap)) {
-      out[k] = fromSnap[k]
+    for (const productId of Object.keys(fromSnap)) {
+      out[productId] = fromSnap[productId]
     }
     return out
   }, [snapshotMetricsByProductId, funding])
@@ -540,30 +443,31 @@ export function usePortfolioData({
   const canonicalPerpPositions = useMemo(
     () =>
       adaptCanonicalPerpPositions(
-        summaryQuery.data?.balances ?? [],
-        isolatedPositionsQuery.data ?? [],
+        rawBalances,
+        rawIsolatedPositions,
         symbolsByProductId,
       ),
-    [summaryQuery.data, isolatedPositionsQuery.data, symbolsByProductId],
+    [rawBalances, rawIsolatedPositions, symbolsByProductId],
   )
 
   const positions = useMemo(() => {
     if (canonicalPerpPositions.length > 0) {
       return canonicalPerpPositions
         .map((row) => {
-          const pid = row.productId
-          const pidKey = pid != null ? String(pid) : null
+          const productId = row.productId
+          const productKey = productId != null ? String(productId) : null
           const snapshot =
-            pidKey != null
-              ? snapshotByPositionKey[perpPositionKey(pid, row.isolated)]
+            productKey != null
+              ? snapshotByPositionKey[perpPositionKey(productId, row.isolated)]
               : null
+
           const fallbackOracle =
-            (pidKey != null ? latestOraclePricesByProductId[pidKey] : null) ?? row.oraclePrice
+            (productKey != null ? latestOraclePricesByProductId[productKey] : null) ?? row.oraclePrice
           const isLong = row.side === 'LONG'
           const exitPrice =
             pickEstimatedExitPrice(
               isLong,
-              pidKey != null ? latestMarketPricesByProductId[pidKey] : null,
+              productKey != null ? latestMarketPricesByProductId[productKey] : null,
               fallbackOracle,
             ) ?? fallbackOracle
 
@@ -576,10 +480,10 @@ export function usePortfolioData({
               : null
 
           const fallbackEntry =
-            pidKey != null &&
-            snapshotMetricsByProductId[pidKey]?.entry != null &&
-            Number.isFinite(snapshotMetricsByProductId[pidKey].entry)
-              ? snapshotMetricsByProductId[pidKey].entry
+            productKey != null &&
+            snapshotMetricsByProductId[productKey]?.entry != null &&
+            Number.isFinite(snapshotMetricsByProductId[productKey].entry)
+              ? snapshotMetricsByProductId[productKey].entry
               : row.entry != null && Number.isFinite(Number(row.entry))
                 ? row.entry
                 : null
@@ -592,28 +496,25 @@ export function usePortfolioData({
           const fundingUsd =
             snapshot?.trackedVars?.netFundingUnrealized != null
               ? fromX18(snapshot.trackedVars.netFundingUnrealized)
-              : pidKey != null &&
-                  fundingUsdByProductId[pidKey] != null &&
-                  Number.isFinite(fundingUsdByProductId[pidKey])
-                ? fundingUsdByProductId[pidKey]
+              : productKey != null &&
+                  fundingUsdByProductId[productKey] != null &&
+                  Number.isFinite(fundingUsdByProductId[productKey])
+                ? fundingUsdByProductId[productKey]
                 : null
 
-          const crossMargin =
+          const crossMarginRaw =
             row.isolated || !row.row
               ? null
-              : calcPerpBalanceValueUsd(row.row.amount, row.row.oraclePrice, row.row.vQuoteBalance) != null
-                ? Number(
-                    Math.max(
-                      0,
-                      calcPerpBalanceValueUsd(
-                        row.row.amount,
-                        row.row.oraclePrice,
-                        row.row.vQuoteBalance,
-                      ) -
-                        (fromX18(row.row?.healthContributions?.initial) ?? 0),
-                    ),
-                  )
-                : null
+              : calcPerpBalanceValueUsd(row.row.amount, row.row.oraclePrice, row.row.vQuoteBalance)
+
+          const crossMargin =
+            crossMarginRaw != null && Number.isFinite(Number(crossMarginRaw))
+              ? Math.max(
+                  0,
+                  Number(crossMarginRaw) -
+                    (fromX18(row.row?.healthContributions?.initial) ?? 0),
+                )
+              : null
 
           const isoMargin =
             row.isolated
@@ -631,10 +532,10 @@ export function usePortfolioData({
 
           const maintenanceHealth = row.isolated
             ? row.isoHealths?.maintenance
-            : summaryQuery.data?.health?.maintenance?.health
+            : summarySource?.health?.maintenance?.health
 
           const marginValue =
-            row.isolated && isoMargin != null && Number.isFinite(isoMargin)
+            row.isolated && isoMargin != null && Number.isFinite(Number(isoMargin))
               ? isoMargin
               : crossMargin
 
@@ -676,41 +577,44 @@ export function usePortfolioData({
 
     const base = crossPositions?.length > 0 ? crossPositions : perpPositionsFromBalances
     if (!base?.length) return base
-    return base.filter(isNonZeroOpenPosition).map((row) => {
-      const pidKey = row.productId != null ? String(row.productId) : null
-      return {
-        ...row,
-        market: normalizePerpMarketLabel(row.market),
-        entry:
-          pidKey != null &&
-          snapshotMetricsByProductId[pidKey]?.entry != null &&
-          Number.isFinite(snapshotMetricsByProductId[pidKey].entry)
-            ? snapshotMetricsByProductId[pidKey].entry
-            : row.entry,
-        pnl:
-          pidKey != null &&
-          snapshotMetricsByProductId[pidKey]?.pnl != null &&
-          Number.isFinite(snapshotMetricsByProductId[pidKey].pnl)
-            ? snapshotMetricsByProductId[pidKey].pnl
-            : row.pnl,
-        fundingUsd:
-          pidKey != null &&
-          fundingUsdByProductId[pidKey] != null &&
-          Number.isFinite(fundingUsdByProductId[pidKey])
-            ? fundingUsdByProductId[pidKey]
-            : null,
-        leverage:
-          row.leverage != null && Number.isFinite(Number(row.leverage))
-            ? Number(row.leverage)
-            : row.notional != null &&
-                row.margin != null &&
-                Number.isFinite(Number(row.notional)) &&
-                Number.isFinite(Number(row.margin)) &&
-                Math.abs(Number(row.margin)) > 1e-12
-              ? Math.abs(Number(row.notional)) / Math.abs(Number(row.margin))
+
+    return base
+      .filter(isNonZeroOpenPosition)
+      .map((row) => {
+        const productKey = row.productId != null ? String(row.productId) : null
+        return {
+          ...row,
+          market: normalizePerpMarketLabel(row.market),
+          entry:
+            productKey != null &&
+            snapshotMetricsByProductId[productKey]?.entry != null &&
+            Number.isFinite(snapshotMetricsByProductId[productKey].entry)
+              ? snapshotMetricsByProductId[productKey].entry
+              : row.entry,
+          pnl:
+            productKey != null &&
+            snapshotMetricsByProductId[productKey]?.pnl != null &&
+            Number.isFinite(snapshotMetricsByProductId[productKey].pnl)
+              ? snapshotMetricsByProductId[productKey].pnl
+              : row.pnl,
+          fundingUsd:
+            productKey != null &&
+            fundingUsdByProductId[productKey] != null &&
+            Number.isFinite(fundingUsdByProductId[productKey])
+              ? fundingUsdByProductId[productKey]
               : null,
-      }
-    })
+          leverage:
+            row.leverage != null && Number.isFinite(Number(row.leverage))
+              ? Number(row.leverage)
+              : row.notional != null &&
+                  row.margin != null &&
+                  Number.isFinite(Number(row.notional)) &&
+                  Number.isFinite(Number(row.margin)) &&
+                  Math.abs(Number(row.margin)) > 1e-12
+                ? Math.abs(Number(row.notional)) / Math.abs(Number(row.margin))
+                : null,
+        }
+      })
   }, [
     canonicalPerpPositions,
     crossPositions,
@@ -720,67 +624,66 @@ export function usePortfolioData({
     fundingUsdByProductId,
     latestMarketPricesByProductId,
     latestOraclePricesByProductId,
-    summaryQuery.data,
+    summarySource,
   ])
-  const orders = useMemo(() => adaptOrders(ordersQuery.data), [ordersQuery.data])
+
+  const orders = useMemo(() => adaptOrders(rawOrders), [rawOrders])
+
   const trades = useMemo(
-    () => adaptTrades(tradesQuery.data, symbolsByProductId),
-    [tradesQuery.data, symbolsByProductId],
-  )
-  const pnl = useMemo(
-    () => adaptPnl(pnlQuery.data, summary),
-    [pnlQuery.data, summary],
-  )
-  const risk = useMemo(
-    () => adaptRisk(riskQuery.data, summary),
-    [riskQuery.data, summary],
+    () => adaptTrades(rawTrades, symbolsByProductId),
+    [rawTrades, symbolsByProductId],
   )
 
+  const pnl = useMemo(() => adaptPnl(rawPnl, summary), [rawPnl, summary])
+
+  const risk = useMemo(() => adaptRisk(rawRisk, summary), [rawRisk, summary])
+
   const unifiedMargin = useMemo(
-    () => deriveUnifiedMargin(summaryQuery.data),
-    [summaryQuery.data],
+    () => deriveUnifiedMargin(summarySource),
+    [summarySource],
   )
 
   const nadoSummary = useMemo(() => {
-    const initialHealthUsd = fromX18(summaryQuery.data?.health?.initial?.health)
-    const maintenanceLiabilitiesUsd = fromX18(summaryQuery.data?.health?.maintenance?.liabilities)
-    const spotUnrealizedFromSnapshots = extractTotalSpotUnrealizedPnlFromSnapshots(
-      accountSnapshotQuery.data,
+    const initialHealthUsd = fromX18(summarySource?.health?.initial?.health)
+    const maintenanceLiabilitiesUsd = fromX18(
+      summarySource?.health?.maintenance?.liabilities,
     )
+
+    const spotUnrealizedFromSnapshots =
+      extractTotalSpotUnrealizedPnlFromSnapshots(rawAccountSnapshot)
 
     let perpUnrealizedUsd = null
     if (positions.length > 0) {
-      let sum = 0
+      let total = 0
       let seen = false
       for (const row of positions) {
-        const pnl = Number(row?.pnl)
-        if (!Number.isFinite(pnl)) continue
-        sum += pnl
+        const value = asFiniteNumber(row?.pnl)
+        if (value == null) continue
+        total += value
         seen = true
       }
-      if (seen) perpUnrealizedUsd = sum
+      if (seen) perpUnrealizedUsd = total
     }
 
     let balancesValueUsd = null
     if (balances.length > 0) {
-      let sum = 0
+      let total = 0
       let seen = false
       for (const row of balances) {
-        const value = Number(row?.usdValue)
-        if (!Number.isFinite(value)) continue
-        sum += value
+        const value = asFiniteNumber(row?.usdValue)
+        if (value == null) continue
+        total += value
         seen = true
       }
-      if (seen) balancesValueUsd = sum
+      if (seen) balancesValueUsd = total
     }
 
     const balanceUsd =
-      pnl?.equity ??
-      summary?.totalEquity ??
+      asFiniteNumber(pnl?.equity) ??
+      asFiniteNumber(summary?.totalEquity) ??
       (balancesValueUsd != null && perpUnrealizedUsd != null
         ? balancesValueUsd + perpUnrealizedUsd
-        : balancesValueUsd) ??
-      null
+        : balancesValueUsd)
 
     return {
       balanceUsd,
@@ -794,51 +697,47 @@ export function usePortfolioData({
         maintenanceLiabilitiesUsd != null && Number.isFinite(maintenanceLiabilitiesUsd)
           ? maintenanceLiabilitiesUsd
           : null,
-      maintenanceMarginUsagePercent: unifiedMargin?.maintenanceMarginUsagePercent ?? null,
+      maintenanceMarginUsagePercent:
+        unifiedMargin?.maintenanceMarginUsagePercent ?? null,
     }
-  }, [
-    accountSnapshotQuery.data,
-    balances,
-    pnl?.equity,
-    positions,
-    summary?.totalEquity,
-    summaryQuery.data,
-    unifiedMargin,
-  ])
+  }, [summarySource, rawAccountSnapshot, positions, balances, pnl, summary, unifiedMargin])
 
-  const queries = [
-    summaryQuery,
-    symbolsQuery,
-    accountSnapshotQuery,
-    isolatedPositionsQuery,
-    latestMarketPricesQuery,
-    latestOraclePricesQuery,
-    positionsQuery,
-    ordersQuery,
-    tradesQuery,
-    fundingQuery,
-    pnlQuery,
-    riskQuery,
-  ]
-  const isLoadingAny = queries.some((q) => q.isLoading)
-  const hasAnyError = queries.some((q) => q.error)
-  const canonicalPositionsQuery = {
-    isLoading:
-      summaryQuery.isLoading ||
-      symbolsQuery.isLoading ||
-      accountSnapshotQuery.isLoading ||
-      isolatedPositionsQuery.isLoading ||
-      latestMarketPricesQuery.isLoading ||
-      latestOraclePricesQuery.isLoading,
-    error:
-      summaryQuery.error ??
-      symbolsQuery.error ??
-      accountSnapshotQuery.error ??
-      isolatedPositionsQuery.error ??
-      latestMarketPricesQuery.error ??
-      latestOraclePricesQuery.error ??
-      null,
+  const snapshotError = snapshotQuery.error ?? null
+  const baseError = activeEnvelope ? null : wsRuntimeError ?? snapshotError
+  const isLoadingBase = shouldLoad && !activeEnvelope && snapshotQuery.isLoading
+  const isSuccessBase = Boolean(activeEnvelope) || snapshotQuery.isSuccess
+
+  const sharedQuery = {
+    isLoading: isLoadingBase,
+    error: baseError,
+    isSuccess: isSuccessBase,
+    refetch: snapshotQuery.refetch,
   }
+
+  const queries = {
+    summary: createQueryLike(sharedQuery),
+    symbols: createQueryLike(sharedQuery),
+    accountSnapshot: createQueryLike(sharedQuery),
+    canonicalPositions: createQueryLike(sharedQuery),
+    isolatedPositions: createQueryLike(sharedQuery),
+    latestMarketPrices: createQueryLike(sharedQuery),
+    latestOraclePrices: createQueryLike(sharedQuery),
+    spotTokenSymbols: createQueryLike({
+      isLoading: spotTokenSymbolsQuery.isLoading,
+      error: spotTokenSymbolsQuery.error,
+      isSuccess: spotTokenSymbolsQuery.isSuccess,
+      refetch: spotTokenSymbolsQuery.refetch,
+    }),
+    positions: createQueryLike(sharedQuery),
+    orders: createQueryLike(sharedQuery),
+    trades: createQueryLike(sharedQuery),
+    funding: createQueryLike(sharedQuery),
+    pnl: createQueryLike(sharedQuery),
+    risk: createQueryLike(sharedQuery),
+  }
+
+  const isLoadingAny = Object.values(queries).some((query) => query.isLoading)
+  const hasAnyError = Object.values(queries).some((query) => query.error)
 
   return {
     summary,
@@ -851,25 +750,10 @@ export function usePortfolioData({
     risk,
     unifiedMargin,
     nadoSummary,
-    queries: {
-      summary: summaryQuery,
-      symbols: symbolsQuery,
-      accountSnapshot: accountSnapshotQuery,
-      canonicalPositions: canonicalPositionsQuery,
-      isolatedPositions: isolatedPositionsQuery,
-      latestMarketPrices: latestMarketPricesQuery,
-      latestOraclePrices: latestOraclePricesQuery,
-      spotTokenSymbols: spotTokenSymbolsQuery,
-      positions: positionsQuery,
-      orders: ordersQuery,
-      trades: tradesQuery,
-      funding: fundingQuery,
-      pnl: pnlQuery,
-      risk: riskQuery,
-    },
+    queries,
     isLoadingAny,
     hasAnyError,
-    /** True when the indexer funding query has no product ids to query (empty balances / no symbols yet). */
-    fundingScopeEmpty: productIdsForSymbols.length === 0,
+    fundingScopeEmpty: productIdsForScope.length === 0,
+    streamStatus: wsStatus,
   }
 }

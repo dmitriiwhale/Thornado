@@ -5,7 +5,10 @@ const isWindows = process.platform === 'win32'
 const npmCmd = isWindows ? 'npm.cmd' : 'npm'
 const gatewayDir = path.join(__dirname, 'gateway')
 const executionDir = path.join(__dirname, 'gateway', 'execution')
+const portfolioDir = path.join(__dirname, 'gateway', 'portfolio')
 const chartDir = path.join(__dirname, 'gateway', 'chart')
+const marketsDir = path.join(__dirname, 'gateway', 'markets')
+const orderbookDir = path.join(__dirname, 'gateway', 'orderbook')
 
 const children = []
 let shuttingDown = false
@@ -55,6 +58,9 @@ process.on('SIGINT', () => shutdown(0))
 process.on('SIGTERM', () => shutdown(0))
 
 run('execution', 'cargo', ['run'], { cwd: executionDir })
+run('portfolio', 'cargo', ['run'], { cwd: portfolioDir })
 run('chart', 'cargo', ['run'], { cwd: chartDir })
+run('markets', 'cargo', ['run'], { cwd: marketsDir })
+run('orderbook', 'cargo', ['run'], { cwd: orderbookDir })
 run('gateway', 'go', ['run', '.'], { cwd: gatewayDir })
 run('client', npmCmd, ['run', 'dev', '--prefix', 'client'])

@@ -76,12 +76,19 @@ func jwtSecret() []byte {
 	return []byte(secret)
 }
 
-func siweDomain() string {
-	d := os.Getenv("SIWE_DOMAIN")
-	if d == "" {
-		return "localhost:5173"
+func siweDomainAllowed(domain string) bool {
+	trimmed := strings.TrimSpace(strings.ToLower(domain))
+	if trimmed == "" {
+		return false
 	}
-	return d
+
+	configured := strings.TrimSpace(strings.ToLower(os.Getenv("SIWE_DOMAIN")))
+	if configured != "" {
+		return trimmed == configured
+	}
+
+	// Dev default: allow localhost and 127.0.0.1 so SIWE works regardless of host alias.
+	return trimmed == "localhost:5173" || trimmed == "127.0.0.1:5173"
 }
 
 // allowedChainIDs returns chain IDs permitted in SIWE messages (Ink testnet + mainnet by default).
@@ -144,8 +151,8 @@ func postVerify(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusUnauthorized, "invalid chain id")
 	}
 
-	domain := siweDomain()
-	if msg.GetDomain() != domain {
+	domain := msg.GetDomain()
+	if !siweDomainAllowed(domain) {
 		return echo.NewHTTPError(http.StatusUnauthorized, "invalid domain")
 	}
 
@@ -302,6 +309,7 @@ func main() {
 	auth.GET("/me", getMe, requireAuth)
 
 	executionProxy := newExecutionProxy()
+	portfolioProxy := newPortfolioProxy()
 
 	profile := api.Group("/profile", requireAuth)
 	profile.GET("/avatar", getAvatar)
@@ -314,6 +322,10 @@ func main() {
 	execution.POST("/execute/trigger", executionProxy.postExecuteTrigger)
 	execution.GET("/context", executionProxy.getContext)
 	execution.GET("/capabilities", executionProxy.getCapabilities)
+
+	portfolio := api.Group("/portfolio", requireAuth)
+	portfolio.GET("/snapshot", portfolioProxy.getSnapshot)
+	portfolio.GET("/ws", portfolioProxy.getWebsocket)
 
 	port := os.Getenv("PORT")
 	if port == "" {

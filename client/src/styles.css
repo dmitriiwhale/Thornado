@@ -2,6 +2,57 @@
 @tailwind components;
 @tailwind utilities;
 
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('/fonts/nado/Inter-Latin.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Inter Fallback';
+  src: local('Arial');
+  ascent-override: 90.44%;
+  descent-override: 22.52%;
+  line-gap-override: 0%;
+  size-adjust: 107.12%;
+}
+
+@font-face {
+  font-family: 'REPLICA';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/nado/REPLICA-Regular.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'REPLICA Fallback';
+  src: local('Arial');
+  ascent-override: 96.13%;
+  descent-override: 25.30%;
+  line-gap-override: 0%;
+  size-adjust: 98.82%;
+}
+
+@font-face {
+  font-family: 'REPLICA_MONO';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/nado/REPLICA_MONO-Regular.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'REPLICA_MONO Fallback';
+  src: local('Arial');
+  ascent-override: 71.06%;
+  descent-override: 18.70%;
+  line-gap-override: 0%;
+  size-adjust: 133.68%;
+}
+
 /* ─── Design tokens ─────────────────────────────────────────────────────────── */
 :root {
   /* Brand palette */
@@ -25,7 +76,22 @@
   --c-green:       #34d399;
   --c-red:         #f87171;
 
-  font-family: 'Space Grotesk', ui-sans-serif, system-ui, sans-serif;
+  /* Terminal dense premium tokens */
+  --term-bg-soft: rgba(6, 9, 20, 0.74);
+  --term-panel-muted: rgba(9, 12, 28, 0.48);
+  --term-panel-strong: linear-gradient(180deg, rgba(16, 18, 38, 0.90), rgba(9, 12, 26, 0.82));
+  --term-card-bg: linear-gradient(180deg, rgba(17, 20, 42, 0.82) 0%, rgba(8, 11, 26, 0.78) 100%);
+  --term-border: rgba(186, 198, 255, 0.16);
+  --term-divider: rgba(173, 186, 255, 0.10);
+
+  --font-inter: 'Inter', 'Inter Fallback';
+  --font-replica: 'REPLICA', 'REPLICA Fallback', system-ui, sans-serif;
+  --font-replica-mono: 'REPLICA_MONO', 'REPLICA_MONO Fallback', ui-monospace, monospace;
+  --font-default: var(--font-inter);
+  --font-brand: var(--font-replica);
+  --font-brand-mono: var(--font-replica-mono);
+
+  font-family: var(--font-default);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   color-scheme: dark;
@@ -45,13 +111,38 @@ html {
 body {
   margin: 0;
   background: var(--c-bg);
+  font-family: var(--font-default);
 }
 
 button { cursor: pointer; }
 
+.terminal-pro {
+  --term-bg-soft: rgba(6, 9, 20, 0.76);
+  --term-panel-muted: rgba(8, 11, 25, 0.54);
+  --term-panel-strong: linear-gradient(180deg, rgba(15, 17, 35, 0.92), rgba(9, 11, 24, 0.84));
+  --term-card-bg: linear-gradient(180deg, rgba(16, 19, 39, 0.84) 0%, rgba(8, 10, 24, 0.80) 100%);
+  --term-border: rgba(190, 202, 255, 0.17);
+  --term-divider: rgba(176, 188, 255, 0.11);
+  font-family: var(--font-default);
+  letter-spacing: -0.01em;
+  line-height: 1;
+}
+
 /* ─── Typography ────────────────────────────────────────────────────────────── */
+.font-default {
+  font-family: var(--font-default);
+}
+
+.font-brand {
+  font-family: var(--font-brand);
+}
+
+.font-brand-mono {
+  font-family: var(--font-brand-mono);
+}
+
 .font-mono {
-  font-family: 'Space Mono', ui-monospace, monospace;
+  font-family: var(--font-brand-mono);
 }
 
 .storm-theme .text-sky-200,
@@ -282,7 +373,7 @@ button { cursor: pointer; }
 /* ─── React Grid Layout ─────────────────────────────────────────────────────── */
 .react-grid-layout {
   position: relative;
-  transition: height 200ms ease;
+  transition: height 160ms ease;
 }
 
 .react-grid-item {
@@ -304,11 +395,11 @@ button { cursor: pointer; }
   z-index: 9999;
   will-change: transform;
   box-shadow:
-    0 0 0 1px rgba(196, 181, 253, 0.55),
-    0 0 34px rgba(167, 139, 250, 0.24),
-    0 20px 60px rgba(0,0,0,0.6);
-  border-radius: 20px;
-  opacity: 0.95;
+    0 0 0 1px rgba(196, 181, 253, 0.42),
+    0 0 20px rgba(167, 139, 250, 0.16),
+    0 14px 34px rgba(0, 0, 0, 0.52);
+  border-radius: 14px;
+  opacity: 0.97;
 }
 
 .react-grid-item.resizing .solid-block,
@@ -325,9 +416,9 @@ button { cursor: pointer; }
 }
 
 .react-grid-item.react-grid-placeholder {
-  background: rgba(139, 92, 246, 0.08) !important;
-  border: 1.5px dashed rgba(196, 181, 253, 0.55) !important;
-  border-radius: 20px;
+  background: rgba(139, 92, 246, 0.07) !important;
+  border: 1px dashed rgba(196, 181, 253, 0.42) !important;
+  border-radius: 14px;
   transition-duration: 100ms;
   z-index: 2;
   user-select: none;
@@ -554,7 +645,7 @@ button { cursor: pointer; }
 }
 
 .landing-soft-copy .hero-title {
-  font-family: 'Sora', 'Space Grotesk', ui-sans-serif, system-ui, sans-serif;
+  font-family: var(--font-brand);
   font-size: clamp(2.95rem, 6.5vw, 5.8rem);
   font-weight: 700;
   line-height: 0.98;
