@@ -1,0 +1,56 @@
+//! # nado_sdk
+//!
+//! ## Usage
+//! See the [examples](https://github.com/nadohq/nado-rust-sdk/tree/main/examples) and [sanity](https://github.com/nadohq/nado-rust-sdk/tree/main/src/sanity) directories.
+//!
+//! ## Quickstart: `prelude`
+//! A prelude is provided which imports all the important data types and traits for you. Use this
+//! when you want to quickly bootstrap a new project.
+//!
+//! ```rust
+//! use nado_sdk::prelude::*;
+//! ```
+//!
+//! ## Modules
+//! ### `core`
+//! Core traits that define API interaction. These traits must be imported when using the client. The
+//! simplest way to import the traits is by using the prelude.
+//!
+//! ### `nado-utils`
+//! Contains request and response models.
+//!
+//! ### `builders`
+//! Use builders for improved UX when writing complex queries or executes. You can build each
+//! query or execute struct for later use or send it directly from the builder.
+//!
+//! ### `nado_client`
+//! REST implementation of core traits.
+//!
+//! ### `sanity`
+//! Sanity checks for core SDK functionality.
+
+pub mod builders;
+pub mod core;
+pub mod nado_client;
+pub mod nado_utils;
+pub mod sanity;
+#[cfg(feature = "ws")]
+pub mod subscriptions;
+pub mod utils;
+
+#[doc(hidden)]
+pub use nado_utils::*;
+
+pub mod prelude {
+    pub use crate::core::*;
+
+    pub use crate::utils::client_mode::ClientMode;
+
+    pub use crate::math::{to_i128_x18, to_i128_x6};
+    pub use crate::nado_client::NadoClient;
+    #[cfg(feature = "ws")]
+    pub use crate::subscriptions::{
+        Stream, StreamType, SubscriptionEvent, SubscriptionsClient, SubscriptionsConfig,
+    };
+    pub use crate::utils::private_key::private_key;
+}

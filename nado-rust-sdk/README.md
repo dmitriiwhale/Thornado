@@ -1,0 +1,111 @@
+# Nado Protocol Rust SDK
+
+[![Crates.io][crates-img]][crates-url]
+
+This is the Rust SDK for the [Nado Protocol API](https://docs.nado.xyz/developer-resources/api/).
+
+[Documentation](https://docs.rs/nado-sdk)
+
+## Quickstart
+
+Instantiate a client on the chain you would like to interact with.
+For example, `ClientMode::Test` to use Ink testnet and `ClientMode::Prod` to use Ink mainnet, etc.
+A signer (private key) is required for executes.
+A signer is not required for queries.
+For requests with many parameters, use the client to build and send requests.
+For simple queries (1-2 params) like `get_market_price`, call directly from the client.
+
+See [`basic_usage.rs`](examples/basic_usage.rs) for an E2E example including depositing into Nado.
+
+```rust
+use nado_sdk::prelude::*;
+
+async fn main() {
+    let client = NadoClient::new(ClientMode::Test)
+        .with_signer(private_key())
+        .await
+        .unwrap();
+
+    const BTC_PERP: u32 = 2;
+
+    // query market data
+    let market_price = client.get_market_price(BTC_PERP).await.unwrap();
+
+    // place orders
+    let place_order_response = client
+        .place_order_builder()
+        .product_id(BTC_PERP)
+        .amount(to_i128_x18(1))
+        .price_x18(market_price.ask_x18)
+        .execute()
+        .await
+        .unwrap();
+
+    let digest = place_order_response.unwrap().digest;
+
+    // cancel orders
+    client
+        .cancellation_builder()
+        .digests(vec![digest])
+        .product_ids(vec![BTC_PERP])
+        .execute()
+        .await
+        .unwrap();
+}
+```
+
+## Installation
+
+Add the following line to your Cargo.toml file:
+
+```toml
+[dependencies]
+nado_sdk = "0.3.5"
+```
+
+## Usage
+
+See the [examples](https://github.com/nadohq/nado-rust-sdk/tree/main/examples) and [sanity](https://github.com/nadohq/nado-rust-sdk/tree/main/src/sanity) directories.
+
+## Running locally
+
+### Run sanity checks
+
+- `cargo run -- --execute-sanity`: runs sanity checks for executes.
+- `cargo run -- --query-sanity`: runs sanity checks for engine queries.
+- `cargo run -- --indexer-sanity`: runs sanity checks for indexer queries.
+
+### Websocket place order example
+
+`cargo run --example place_order_websocket` requires a `.env` file in the repo root with your signer key:
+
+```
+RUST_SDK_PRIVATE_KEY=<your_private_key_hex>
+# optional: NETWORK=test|prod (defaults to test)
+```
+
+Use `.env.example` as a template: copy it to `.env` and fill in the variables above.
+
+Then run the example:
+
+```
+cargo run --example place_order_websocket --features ws
+```
+
+### High-level websocket subscriptions example
+
+`cargo run --example subscriptions_high_level --features ws` requires a `.env` file in the repo root with your signer key:
+
+```
+RUST_SDK_PRIVATE_KEY=<your_private_key_hex>
+# optional: NETWORK=test|prod (defaults to test)
+```
+
+This example demonstrates a high-level subscriptions client with:
+
+- request/response correlation by request id
+- 30-second ping frames
+- typed helpers for `authenticate`, `subscribe`, `unsubscribe`, and `list`
+
+[crates-img]: https://img.shields.io/crates/v/nado-sdk
+[crates-url]: https://crates.io/crates/nado-sdk

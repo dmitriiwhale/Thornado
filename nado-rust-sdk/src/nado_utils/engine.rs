@@ -1,0 +1,1874 @@
+use eyre::{eyre, Result};
+use std::collections::HashMap;
+use std::str::FromStr;
+use std::sync::atomic::{AtomicU8, Ordering};
+// #![allow(dead_code, clippy::blacklisted_name)]
+use crate::bindings::querier::{
+    BookInfo, HealthInfo, PerpBalance, PerpProduct, ProductInfo, Risk, SpotBalance, SubaccountInfo,
+};
+use crate::eip712_structs::{
+    BurnNlp, Cancellation, CancellationProducts, LinkSigner, LiquidateSubaccount, MintNlp, Order,
+    TransferQuote, WithdrawCollateral,
+};
+use crate::product::Product;
+use crate::serialize_utils::{
+    deserialize_bytes20, deserialize_bytes32, deserialize_i128, deserialize_nested_vec_i128,
+    deserialize_option_bytes32, deserialize_option_vec_u8, deserialize_u128, deserialize_u64,
+    deserialize_vec_i128, deserialize_vec_u8, serialize_bytes20, serialize_bytes32, serialize_i128,
+    serialize_nested_vec_i128, serialize_option_bytes32, serialize_option_vec_u8, serialize_u128,
+    serialize_u64, serialize_vec_i128, serialize_vec_u8, str_or_u32, WrappedI128,
+};
+use rkyv::{Archive, Deserialize as RkyvDeserialize, Serialize as RkyvSerialize};
+use serde::{Deserialize, Serialize};
+// use ts_rs::TS;
+
+#[derive(
+    Archive, RkyvDeserialize, RkyvSerialize, Clone, Debug, Eq, PartialEq, Serialize, Deserialize,
+)]
+#[serde(rename_all = "snake_case")]
+#[archive(check_bytes)]
+pub enum Direction {
+    Long,
+    Short,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ProductDelta {
+    pub product_id: u32,
+    #[serde(
+        serialize_with = "serialize_bytes32",
+        deserialize_with = "deserialize_bytes32"
+    )]
+    pub subaccount: [u8; 32],
+    #[serde(
+        serialize_with = "serialize_i128",
+        deserialize_with = "deserialize_i128"
+    )]
+    pub amount_delta: i128,
+    #[serde(
+        serialize_with = "serialize_i128",
+        deserialize_with = "deserialize_i128"
+    )]
+    pub v_quote_delta: i128,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Txn {
+    ApplyDelta(ProductDelta),
+}
+
+#[derive(Archive, RkyvDeserialize, RkyvSerialize, Serialize, Deserialize, Debug, Clone)]
+#[archive(check_bytes)]
+#[serde(rename_all = "snake_case")]
+#[serde(tag = "type")]
+// #[ts(export)]
+// #[ts(export_to = "tsBindings/msg/")]
+pub enum Query {
+    Status {},
+
+    Contracts {},
+
+    Nonces {
+        #[serde(
+            serialize_with = "serialize_bytes20",
+            deserialize_with = "deserialize_bytes20"
+        )]
+        address: [u8; 20],
+    },
+
+    LinkedSigner {
+        #[serde(
+            serialize_with = "serialize_bytes32",
+            deserialize_with = "deserialize_bytes32"
+        )]
+        subaccount: [u8; 32],
+    },
+
+    SubaccountInfo {
+        #[serde(
+            serialize_with = "serialize_bytes32",
+            deserialize_with = "deserialize_bytes32"
+        )]
+        subaccount: [u8; 32],
+        txns: Option<String>,
+        pre_state: Option<String>,
+    },
+
+    AllProducts {},
+
+    EdgeAllProducts {},
+
+    MarketPrice {
+        #[serde(deserialize_with = "str_or_u32")]
+        product_id: u32,
+    },
+
+    MarketPrices {
+        product_ids: Vec<u32>,
+    },
+
+    Order {
+        #[serde(deserialize_with = "str_or_u32")]
+        product_id: u32,
+        #[serde(
+            serialize_with = "serialize_bytes32",
+            deserialize_with = "deserialize_bytes32"
+        )]
+        digest: [u8; 32],
+    },
+
+    Orders {
+        // #[ts(type = "string")]
+        #[serde(
+            serialize_with = "serialize_bytes32",
+            deserialize_with = "deserialize_bytes32"
+        )]
+        sender: [u8; 32],
+        product_ids: Vec<u32>,
+    },
+
+    ValidateOrder {
+        product_id: u32,
+        #[serde(
+            serialize_with = "serialize_vec_u8",
+            deserialize_with = "deserialize_vec_u8"
+        )]
+        order: Vec<u8>,
+    },
+
+    FeeRates {
+        #[serde(
+            serialize_with = "serialize_bytes32",
+            deserialize_with = "deserialize_bytes32"
+        )]
+        sender: [u8; 32],
+    },
+
+    SubaccountOrders {
+        // #[ts(type = "string")]
+        #[serde(
+            serialize_with = "serialize_bytes32",
+            deserialize_with = "deserialize_bytes32"
+        )]
+        sender: [u8; 32],
+        #[serde(deserialize_with = "str_or_u32")]
+        product_id: u32,
+    },
+
+    MarketLiquidity {
+        #[serde(deserialize_with = "str_or_u32")]
+        product_id: u32,
+        #[serde(deserialize_with = "str_or_u32")]
+        depth: u32,
+    },
+
+    MaxOrderSize {
+        #[serde(
+            serialize_with = "serialize_bytes32",
+            deserialize_with = "deserialize_bytes32"
+        )]
+        sender: [u8; 32],
+        #[serde(deserialize_with = "str_or_u32")]
+        product_id: u32,
+        #[serde(
+            serialize_with = "serialize_i128",
+            deserialize_with = "deserialize_i128"
+        )]
+        price_x18: i128,
+        direction: Direction,
+        spot_leverage: Option<String>,
+        reduce_only: Option<String>,
+        isolated: Option<String>,
+        borrow_margin: Option<String>,
+    },
+
+    MaxWithdrawable {
+        #[serde(
+            serialize_with = "serialize_bytes32",
+            deserialize_with = "deserialize_bytes32"
+        )]
+        sender: [u8; 32],
+        #[serde(deserialize_with = "str_or_u32")]
+        product_id: u32,
+        spot_leverage: Option<String>,
+    },
+
+    MaxNlpMintable {
+        #[serde(
+            serialize_with = "serialize_bytes32",
+            deserialize_with = "deserialize_bytes32"
+        )]
+        sender: [u8; 32],
+        spot_leverage: Option<String>,
+    },
+
+    MaxNlpBurnable {
+        #[serde(
+            serialize_with = "serialize_bytes32",
+            deserialize_with = "deserialize_bytes32"
+        )]
+        sender: [u8; 32],
+    },
+
+    IsolatedPositions {
+        #[serde(
+            serialize_with = "serialize_bytes32",
+            deserialize_with = "deserialize_bytes32"
+        )]
+        subaccount: [u8; 32],
+    },
+
+    HealthGroups {},
+
+    Insurance {},
+
+    Versions {},
+
+    Symbols {
+        product_ids: Option<Vec<u32>>,
+        product_type: Option<String>,
+    },
+
+    NlpPoolInfo {},
+
+    NlpLockedBalances {
+        #[serde(
+            serialize_with = "serialize_bytes32",
+            deserialize_with = "deserialize_bytes32"
+        )]
+        subaccount: [u8; 32],
+    },
+}
+
+#[derive(Archive, RkyvDeserialize, RkyvSerialize, Clone, Serialize, Deserialize, Debug)]
+#[archive(check_bytes)]
+#[serde(rename_all = "snake_case")]
+pub struct PlaceOrder {
+    pub order: Order,
+    #[serde(
+        serialize_with = "serialize_vec_u8",
+        deserialize_with = "deserialize_vec_u8"
+    )]
+    pub signature: Vec<u8>,
+    pub product_id: u32,
+    #[serde(
+        serialize_with = "serialize_option_bytes32",
+        deserialize_with = "deserialize_option_bytes32"
+    )]
+    #[serde(default)]
+    pub digest: Option<[u8; 32]>,
+    // serde ignore if none
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
+    pub id: Option<u64>,
+    pub spot_leverage: Option<bool>,
+    pub borrow_margin: Option<bool>,
+}
+
+#[derive(Archive, RkyvDeserialize, RkyvSerialize, Clone, Serialize, Deserialize, Debug)]
+#[archive(check_bytes)]
+#[serde(rename_all = "camelCase")]
+pub struct Artifact {
+    pub bytecode: String,
+    pub deployed_bytecode: String,
+}
+
+#[derive(Archive, RkyvDeserialize, RkyvSerialize, Clone, Serialize, Deserialize, Debug)]
+#[archive(check_bytes)]
+#[serde(rename_all = "snake_case")]
+// #[ts(export)]
+// #[ts(export_to = "tsBindings/msg/")]
+pub enum Execute {
+    LiquidateSubaccount {
+        tx: LiquidateSubaccount,
+        #[serde(
+            serialize_with = "serialize_vec_u8",
+            deserialize_with = "deserialize_vec_u8"
+        )]
+        signature: Vec<u8>,
+    },
+    WithdrawCollateral {
+        tx: WithdrawCollateral,
+        #[serde(
+            serialize_with = "serialize_vec_u8",
+            deserialize_with = "deserialize_vec_u8"
+        )]
+        signature: Vec<u8>,
+        spot_leverage: Option<bool>,
+        sequencer_risk_check: Option<bool>,
+    },
+    PlaceOrder(PlaceOrder),
+    CancelOrders {
+        tx: Cancellation,
+        #[serde(
+            serialize_with = "serialize_vec_u8",
+            deserialize_with = "deserialize_vec_u8"
+        )]
+        signature: Vec<u8>,
+    },
+    CancelProductOrders {
+        tx: CancellationProducts,
+        #[serde(
+            serialize_with = "serialize_vec_u8",
+            deserialize_with = "deserialize_vec_u8"
+        )]
+        signature: Vec<u8>,
+        #[serde(
+            serialize_with = "serialize_option_bytes32",
+            deserialize_with = "deserialize_option_bytes32"
+        )]
+        #[serde(default)]
+        digest: Option<[u8; 32]>,
+    },
+    LinkSigner {
+        tx: LinkSigner,
+        #[serde(
+            serialize_with = "serialize_vec_u8",
+            deserialize_with = "deserialize_vec_u8"
+        )]
+        signature: Vec<u8>,
+    },
+    CancelAndPlace {
+        cancel_tx: Cancellation,
+        #[serde(
+            serialize_with = "serialize_vec_u8",
+            deserialize_with = "deserialize_vec_u8"
+        )]
+        cancel_signature: Vec<u8>,
+        place_order: PlaceOrder,
+        #[serde(default)]
+        place_requires_unfilled: Option<bool>,
+    },
+
+    TransferQuote {
+        tx: TransferQuote,
+        #[serde(
+            serialize_with = "serialize_vec_u8",
+            deserialize_with = "deserialize_vec_u8"
+        )]
+        signature: Vec<u8>,
+    },
+
+    MintNlp {
+        tx: MintNlp,
+        #[serde(
+            serialize_with = "serialize_vec_u8",
+            deserialize_with = "deserialize_vec_u8"
+        )]
+        signature: Vec<u8>,
+        spot_leverage: Option<bool>,
+    },
+    BurnNlp {
+        tx: BurnNlp,
+        #[serde(
+            serialize_with = "serialize_vec_u8",
+            deserialize_with = "deserialize_vec_u8"
+        )]
+        signature: Vec<u8>,
+    },
+}
+
+#[derive(
+    Archive, RkyvDeserialize, RkyvSerialize, Clone, Debug, Eq, PartialEq, Serialize, Deserialize,
+)]
+#[archive(check_bytes)]
+pub struct TradingStatusUpdate {
+    pub product_id: u32,
+    pub trading_status: TradingStatus,
+}
+
+#[derive(
+    Archive, RkyvDeserialize, RkyvSerialize, Clone, Debug, Eq, PartialEq, Serialize, Deserialize,
+)]
+#[archive(check_bytes)]
+pub struct OiCapUpdate {
+    pub product_id: u32,
+    #[serde(
+        serialize_with = "serialize_i128",
+        deserialize_with = "deserialize_i128"
+    )]
+    pub oi_cap_x18: i128,
+}
+
+#[derive(
+    Archive, RkyvDeserialize, RkyvSerialize, Clone, Debug, Eq, PartialEq, Serialize, Deserialize,
+)]
+#[archive(check_bytes)]
+pub struct NlpSlippageUpdate {
+    pub product_id: u32,
+    #[serde(
+        serialize_with = "serialize_i128",
+        deserialize_with = "deserialize_i128"
+    )]
+    pub slippage_x18: i128,
+}
+
+#[derive(
+    Archive, RkyvDeserialize, RkyvSerialize, Clone, Debug, Eq, PartialEq, Serialize, Deserialize,
+)]
+#[archive(check_bytes)]
+pub struct IsolatedOnlyUpdate {
+    pub product_id: u32,
+    pub isolated_only: bool,
+}
+
+#[derive(
+    Archive, RkyvDeserialize, RkyvSerialize, Clone, Debug, Eq, PartialEq, Serialize, Deserialize,
+)]
+#[archive(check_bytes)]
+pub struct NlpLiquidationUpdate {
+    pub product_id: u32,
+    pub is_nlp_liquidation: bool,
+}
+
+#[derive(Archive, RkyvDeserialize, RkyvSerialize, Serialize, Deserialize, Debug)]
+#[serde(untagged)]
+#[archive(check_bytes)]
+pub enum EngineMessage {
+    Query(Query),
+    Execute(Execute),
+}
+
+#[derive(Archive, RkyvDeserialize, RkyvSerialize, Serialize, Deserialize, Debug)]
+#[archive(check_bytes)]
+pub struct LabeledEngineMessage {
+    pub chain_id: u64,
+    pub msg: EngineMessage,
+}
+
+#[derive(
+    Archive,
+    RkyvDeserialize,
+    RkyvSerialize,
+    Serialize,
+    Deserialize,
+    Clone,
+    Debug,
+    Default,
+    Eq,
+    PartialEq,
+)]
+#[archive(check_bytes)]
+pub struct Config {
+    #[serde(
+        serialize_with = "serialize_bytes20",
+        deserialize_with = "deserialize_bytes20"
+    )]
+    pub token: [u8; 20],
+    #[serde(
+        serialize_with = "serialize_i128",
+        deserialize_with = "deserialize_i128"
+    )]
+    pub interest_inflection_util_x18: i128,
+    #[serde(
+        serialize_with = "serialize_i128",
+        deserialize_with = "deserialize_i128"
+    )]
+    pub interest_floor_x18: i128,
+    #[serde(
+        serialize_with = "serialize_i128",
+        deserialize_with = "deserialize_i128"
+    )]
+    pub interest_small_cap_x18: i128,
+    #[serde(
+        serialize_with = "serialize_i128",
+        deserialize_with = "deserialize_i128"
+    )]
+    pub interest_large_cap_x18: i128,
+    #[serde(
+        serialize_with = "serialize_i128",
+        deserialize_with = "deserialize_i128"
+    )]
+    pub withdraw_fee_x18: i128,
+    #[serde(
+        serialize_with = "serialize_i128",
+        deserialize_with = "deserialize_i128"
+    )]
+    pub min_deposit_rate_x18: i128,
+}
+
+impl From<crate::bindings::querier::Config> for Config {
+    fn from(config: crate::bindings::querier::Config) -> Self {
+        Config {
+            token: config.token.into(),
+            interest_inflection_util_x18: config.interest_inflection_util_x18,
+            interest_floor_x18: config.interest_floor_x18,
+            interest_small_cap_x18: config.interest_small_cap_x18,
+            interest_large_cap_x18: config.interest_large_cap_x18,
+            withdraw_fee_x18: config.withdraw_fee_x18,
+            min_deposit_rate_x18: config.min_deposit_rate_x18,
+        }
+    }
+}
+
+#[derive(
+    Archive,
+    RkyvDeserialize,
+    RkyvSerialize,
+    Serialize,
+    Deserialize,
+    Clone,
+    Debug,
+    Default,
+    Eq,
+    PartialEq,
+)]
+#[archive(check_bytes)]
+pub struct SpotProduct {
+    pub product_id: u32,
+    #[serde(
+        serialize_with = "serialize_i128",
+        deserialize_with = "deserialize_i128"
+    )]
+    pub oracle_price_x18: i128,
+    pub risk: Risk,
+    pub config: Config,
+    pub state: crate::bindings::spot_engine::State,
+    pub book_info: BookInfo,
+}
+
+impl From<crate::bindings::querier::SpotProduct> for SpotProduct {
+    fn from(spot_product: crate::bindings::querier::SpotProduct) -> Self {
+        SpotProduct {
+            product_id: spot_product.product_id,
+            oracle_price_x18: spot_product.oracle_price_x18,
+            risk: spot_product.risk,
+            config: Config::from(spot_product.config),
+            state: spot_product.state,
+            book_info: spot_product.book_info,
+        }
+    }
+}
+
+#[derive(
+    Archive,
+    RkyvDeserialize,
+    RkyvSerialize,
+    Serialize,
+    Deserialize,
+    Clone,
+    Debug,
+    Default,
+    Eq,
+    PartialEq,
+)]
+#[archive(check_bytes)]
+pub struct AllProductsResponse {
+    pub spot_products: ::std::vec::Vec<SpotProduct>,
+    pub perp_products: ::std::vec::Vec<PerpProduct>,
+}
+
+impl From<ProductInfo> for AllProductsResponse {
+    fn from(product_info: ProductInfo) -> Self {
+        AllProductsResponse {
+            spot_products: product_info
+                .spot_products
+                .into_iter()
+                .map(SpotProduct::from)
+                .collect(),
+            perp_products: product_info.perp_products,
+        }
+    }
+}
+#[derive(
+    Archive,
+    RkyvDeserialize,
+    RkyvSerialize,
+    Serialize,
+    Deserialize,
+    Clone,
+    Debug,
+    Default,
+    Eq,
+    PartialEq,
+)]
+#[archive(check_bytes)]
+pub struct EdgeAllProductsResponse {
+    pub edge_all_products: HashMap<u64, AllProductsResponse>,
+}
+
+#[derive(
+    Clone,
+    Debug,
+    Default,
+    Eq,
+    PartialEq,
+    Serialize,
+    Deserialize,
+    Archive,
+    RkyvSerialize,
+    RkyvDeserialize,
+)]
+#[archive(check_bytes)]
+pub struct PreState {
+    pub healths: ::std::vec::Vec<HealthInfo>,
+    #[serde(
+        serialize_with = "serialize_nested_vec_i128",
+        deserialize_with = "deserialize_nested_vec_i128"
+    )]
+    pub health_contributions: Vec<Vec<i128>>,
+    pub spot_balances: ::std::vec::Vec<SpotBalance>,
+    pub perp_balances: ::std::vec::Vec<PerpBalance>,
+}
+
+#[derive(
+    Clone,
+    Debug,
+    Default,
+    Eq,
+    PartialEq,
+    Serialize,
+    Deserialize,
+    Archive,
+    RkyvSerialize,
+    RkyvDeserialize,
+)]
+#[archive(check_bytes)]
+pub struct SubaccountInfoResponse {
+    #[serde(
+        serialize_with = "serialize_bytes32",
+        deserialize_with = "deserialize_bytes32"
+    )]
+    pub subaccount: [u8; 32],
+    pub exists: bool,
+    pub healths: ::std::vec::Vec<HealthInfo>,
+    #[serde(
+        serialize_with = "serialize_nested_vec_i128",
+        deserialize_with = "deserialize_nested_vec_i128"
+    )]
+    pub health_contributions: Vec<Vec<i128>>,
+    pub spot_count: u32,
+    pub perp_count: u32,
+    pub spot_balances: ::std::vec::Vec<SpotBalance>,
+    pub perp_balances: ::std::vec::Vec<PerpBalance>,
+    pub spot_products: ::std::vec::Vec<SpotProduct>,
+    pub perp_products: ::std::vec::Vec<PerpProduct>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pre_state: Option<PreState>,
+}
+
+impl From<SubaccountInfo> for SubaccountInfoResponse {
+    fn from(subaccount_info: SubaccountInfo) -> Self {
+        SubaccountInfoResponse {
+            subaccount: subaccount_info.subaccount,
+            exists: subaccount_info.exists,
+            healths: subaccount_info.healths,
+            health_contributions: subaccount_info.health_contributions,
+            spot_count: subaccount_info.spot_count,
+            perp_count: subaccount_info.perp_count,
+            spot_balances: subaccount_info.spot_balances,
+            perp_balances: subaccount_info.perp_balances,
+            spot_products: subaccount_info
+                .spot_products
+                .into_iter()
+                .map(SpotProduct::from)
+                .collect(),
+            perp_products: subaccount_info.perp_products,
+            pre_state: None,
+        }
+    }
+}
+
+impl SubaccountInfoResponse {
+    pub fn from_with_pre_state(
+        subaccount_info: SubaccountInfo,
+        pre_state: Option<PreState>,
+    ) -> Self {
+        let mut resp = SubaccountInfoResponse::from(subaccount_info);
+        resp.pre_state = pre_state;
+        resp
+    }
+}
+
+#[derive(
+    Clone,
+    Debug,
+    Default,
+    Eq,
+    PartialEq,
+    Serialize,
+    Deserialize,
+    Archive,
+    RkyvSerialize,
+    RkyvDeserialize,
+)]
+#[archive(check_bytes)]
+pub struct ContractsResponse {
+    #[serde(serialize_with = "serialize_u64", deserialize_with = "deserialize_u64")]
+    // Should be fine to use u128 here.
+    // see https://gist.github.com/rekmarks/a47bd5f2525936c4b8eee31a16345553
+    pub chain_id: u64,
+    #[serde(
+        serialize_with = "serialize_bytes20",
+        deserialize_with = "deserialize_bytes20"
+    )]
+    pub endpoint_addr: [u8; 20],
+}
+
+#[derive(
+    Clone,
+    Debug,
+    Default,
+    Eq,
+    PartialEq,
+    Serialize,
+    Deserialize,
+    Archive,
+    RkyvSerialize,
+    RkyvDeserialize,
+)]
+#[archive(check_bytes)]
+pub struct NoncesResponse {
+    #[serde(serialize_with = "serialize_u64", deserialize_with = "deserialize_u64")]
+    pub tx_nonce: u64,
+    #[serde(serialize_with = "serialize_u64", deserialize_with = "deserialize_u64")]
+    pub order_nonce: u64,
+}
+
+#[derive(
+    Clone,
+    Debug,
+    Default,
+    Eq,
+    PartialEq,
+    Serialize,
+    Deserialize,
+    Archive,
+    RkyvSerialize,
+    RkyvDeserialize,
+)]
+#[archive(check_bytes)]
+pub struct LinkedSignerResponse {
+    #[serde(
+        serialize_with = "serialize_bytes20",
+        deserialize_with = "deserialize_bytes20"
+    )]
+    pub linked_signer: [u8; 20],
+}
+
+#[derive(
+    Clone,
+    Debug,
+    Default,
+    Eq,
+    PartialEq,
+    Serialize,
+    Deserialize,
+    Archive,
+    RkyvSerialize,
+    RkyvDeserialize,
+)]
+#[archive(check_bytes)]
+// #[ts(export)]
+// #[ts(export_to = "tsBindings/msgResponses/")]
+pub struct MarketPriceResponse {
+    pub product_id: u32,
+    #[serde(
+        serialize_with = "serialize_i128",
+        deserialize_with = "deserialize_i128"
+    )]
+    // #[ts(type = "BigNumberish")]
+    pub bid_x18: i128,
+    #[serde(
+        serialize_with = "serialize_i128",
+        deserialize_with = "deserialize_i128"
+    )]
+    // #[ts(type = "BigNumberish")]
+    pub ask_x18: i128,
+}
+
+#[derive(
+    Clone,
+    Debug,
+    Default,
+    Eq,
+    PartialEq,
+    Serialize,
+    Deserialize,
+    Archive,
+    RkyvSerialize,
+    RkyvDeserialize,
+)]
+#[archive(check_bytes)]
+// #[ts(export)]
+// #[ts(export_to = "tsBindings/msgResponses/")]
+pub struct MarketPricesResponse {
+    pub market_prices: Vec<MarketPriceResponse>,
+}
+
+#[derive(
+    Clone,
+    Debug,
+    Default,
+    Eq,
+    PartialEq,
+    Serialize,
+    Deserialize,
+    Archive,
+    RkyvSerialize,
+    RkyvDeserialize,
+)]
+#[archive(check_bytes)]
+// #[ts(export)]
+// #[ts(export_to = "tsBindings/msgResponses/")]
+pub struct OrderResponse {
+    pub product_id: u32,
+    // #[ts(type = "string")]
+    #[serde(
+        serialize_with = "serialize_bytes32",
+        deserialize_with = "deserialize_bytes32"
+    )]
+    pub sender: [u8; 32],
+    #[serde(
+        serialize_with = "serialize_i128",
+        deserialize_with = "deserialize_i128"
+    )]
+    // #[ts(type = "BigNumberish")]
+    pub price_x18: i128,
+    #[serde(
+        serialize_with = "serialize_i128",
+        deserialize_with = "deserialize_i128"
+    )]
+    // #[ts(type = "BigNumberish")]
+    pub amount: i128,
+    pub expiration: String,
+    pub order_type: String,
+    pub nonce: String,
+    #[serde(
+        serialize_with = "serialize_u128",
+        deserialize_with = "deserialize_u128"
+    )]
+    // #[ts(type = "BigNumberish")]
+    pub appendix: u128,
+    #[serde(
+        serialize_with = "serialize_i128",
+        deserialize_with = "deserialize_i128"
+    )]
+    // #[ts(type = "BigNumberish")]
+    pub unfilled_amount: i128,
+    #[serde(
+        serialize_with = "serialize_bytes32",
+        deserialize_with = "deserialize_bytes32"
+    )]
+    pub digest: [u8; 32],
+    pub placed_at: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<u64>,
+}
+
+#[derive(
+    Clone,
+    Debug,
+    Default,
+    Eq,
+    PartialEq,
+    Serialize,
+    Deserialize,
+    Archive,
+    RkyvSerialize,
+    RkyvDeserialize,
+)]
+#[archive(check_bytes)]
+// #[ts(export)]
+// #[ts(export_to = "tsBindings/msgResponses/")]
+pub struct ValidateOrderResponse {
+    pub product_id: u32,
+    #[serde(
+        serialize_with = "serialize_vec_u8",
+        deserialize_with = "deserialize_vec_u8"
+    )]
+    pub order: Vec<u8>,
+    pub valid: bool,
+}
+
+#[derive(
+    Clone,
+    Debug,
+    Default,
+    Eq,
+    PartialEq,
+    Serialize,
+    Deserialize,
+    Archive,
+    RkyvSerialize,
+    RkyvDeserialize,
+)]
+#[archive(check_bytes)]
+// #[ts(export)]
+// #[ts(export_to = "tsBindings/msgResponses/")]
+pub struct FeeRatesResponse {
+    #[serde(
+        serialize_with = "serialize_vec_i128",
+        deserialize_with = "deserialize_vec_i128"
+    )]
+    pub taker_fee_rates_x18: Vec<i128>,
+    #[serde(
+        serialize_with = "serialize_vec_i128",
+        deserialize_with = "deserialize_vec_i128"
+    )]
+    pub maker_fee_rates_x18: Vec<i128>,
+    #[serde(
+        serialize_with = "serialize_i128",
+        deserialize_with = "deserialize_i128"
+    )]
+    pub liquidation_sequencer_fee: i128,
+    #[serde(
+        serialize_with = "serialize_i128",
+        deserialize_with = "deserialize_i128"
+    )]
+    pub health_check_sequencer_fee: i128,
+    #[serde(
+        serialize_with = "serialize_i128",
+        deserialize_with = "deserialize_i128"
+    )]
+    pub taker_sequencer_fee: i128,
+    #[serde(
+        serialize_with = "serialize_vec_i128",
+        deserialize_with = "deserialize_vec_i128"
+    )]
+    pub withdraw_sequencer_fees: Vec<i128>,
+    pub fee_tier: u32,
+}
+
+#[derive(
+    Clone,
+    Debug,
+    Default,
+    Eq,
+    PartialEq,
+    Serialize,
+    Deserialize,
+    Archive,
+    RkyvSerialize,
+    RkyvDeserialize,
+)]
+#[archive(check_bytes)]
+// #[ts(export)]
+// #[ts(export_to = "tsBindings/msgResponses/")]
+pub struct SubaccountOrdersResponse {
+    #[serde(
+        serialize_with = "serialize_bytes32",
+        deserialize_with = "deserialize_bytes32"
+    )]
+    pub sender: [u8; 32],
+    pub product_id: u32,
+    pub orders: Vec<OrderResponse>,
+}
+
+#[derive(
+    Clone,
+    Debug,
+    Default,
+    Eq,
+    PartialEq,
+    Serialize,
+    Deserialize,
+    Archive,
+    RkyvSerialize,
+    RkyvDeserialize,
+)]
+#[archive(check_bytes)]
+// #[ts(export)]
+// #[ts(export_to = "tsBindings/msgResponses/")]
+pub struct ProductOrdersResponse {
+    pub product_id: u32,
+    pub orders: Vec<OrderResponse>,
+}
+
+#[derive(
+    Clone,
+    Debug,
+    Default,
+    Eq,
+    PartialEq,
+    Serialize,
+    Deserialize,
+    Archive,
+    RkyvSerialize,
+    RkyvDeserialize,
+)]
+#[archive(check_bytes)]
+// #[ts(export)]
+// #[ts(export_to = "tsBindings/msgResponses/")]
+pub struct OrdersResponse {
+    #[serde(
+        serialize_with = "serialize_bytes32",
+        deserialize_with = "deserialize_bytes32"
+    )]
+    pub sender: [u8; 32],
+    pub product_orders: Vec<ProductOrdersResponse>,
+}
+
+#[derive(
+    Clone,
+    Debug,
+    Default,
+    Eq,
+    PartialEq,
+    Serialize,
+    Deserialize,
+    Archive,
+    RkyvSerialize,
+    RkyvDeserialize,
+)]
+#[archive(check_bytes)]
+// #[ts(export)]
+// #[ts(export_to = "tsBindings/msgResponses/")]
+pub struct MaxOrderSizeResponse {
+    // #[ts(type = "string")]
+    #[serde(
+        serialize_with = "serialize_i128",
+        deserialize_with = "deserialize_i128"
+    )]
+    pub max_order_size: i128,
+}
+
+#[derive(
+    Clone,
+    Debug,
+    Default,
+    Eq,
+    PartialEq,
+    Serialize,
+    Deserialize,
+    Archive,
+    RkyvSerialize,
+    RkyvDeserialize,
+)]
+#[archive(check_bytes)]
+// #[ts(export)]
+// #[ts(export_to = "tsBindings/msgResponses/")]
+pub struct MaxWithdrawableResponse {
+    // #[ts(type = "string")]
+    #[serde(
+        serialize_with = "serialize_i128",
+        deserialize_with = "deserialize_i128"
+    )]
+    pub max_withdrawable: i128,
+}
+
+#[derive(
+    Clone,
+    Debug,
+    Default,
+    Eq,
+    PartialEq,
+    Serialize,
+    Deserialize,
+    Archive,
+    RkyvSerialize,
+    RkyvDeserialize,
+)]
+#[archive(check_bytes)]
+// #[ts(export)]
+// #[ts(export_to = "tsBindings/msgResponses/")]
+pub struct MaxNlpMintableResponse {
+    // #[ts(type = "string")]
+    #[serde(
+        serialize_with = "serialize_i128",
+        deserialize_with = "deserialize_i128"
+    )]
+    pub max_quote_amount: i128,
+}
+
+#[derive(
+    Clone,
+    Debug,
+    Default,
+    Eq,
+    PartialEq,
+    Serialize,
+    Deserialize,
+    Archive,
+    RkyvSerialize,
+    RkyvDeserialize,
+)]
+#[archive(check_bytes)]
+// #[ts(export)]
+// #[ts(export_to = "tsBindings/msgResponses/")]
+pub struct MaxNlpBurnableResponse {
+    // #[ts(type = "string")]
+    #[serde(
+        serialize_with = "serialize_i128",
+        deserialize_with = "deserialize_i128"
+    )]
+    pub max_nlp_amount: i128,
+}
+
+#[derive(
+    Clone,
+    Debug,
+    Default,
+    Eq,
+    PartialEq,
+    Serialize,
+    Deserialize,
+    Archive,
+    RkyvSerialize,
+    RkyvDeserialize,
+)]
+#[archive(check_bytes)]
+// #[ts(export)]
+// #[ts(export_to = "tsBindings/msgResponses/")]
+pub struct HealthGroupsResponse {
+    // #[ts(type = "string")]
+    pub health_groups: Vec<(u32, u32)>,
+}
+
+#[derive(
+    Clone,
+    Debug,
+    Default,
+    Eq,
+    PartialEq,
+    Serialize,
+    Deserialize,
+    Archive,
+    RkyvSerialize,
+    RkyvDeserialize,
+)]
+#[archive(check_bytes)]
+// #[ts(export)]
+// #[ts(export_to = "tsBindings/msgResponses/")]
+pub struct InsuranceResponse {
+    // #[ts(type = "string")]
+    #[serde(
+        serialize_with = "serialize_i128",
+        deserialize_with = "deserialize_i128"
+    )]
+    pub insurance: i128,
+}
+
+#[derive(
+    Clone,
+    Debug,
+    Default,
+    Eq,
+    PartialEq,
+    Serialize,
+    Deserialize,
+    Archive,
+    RkyvSerialize,
+    RkyvDeserialize,
+)]
+#[archive(check_bytes)]
+pub struct SymbolsResponse {
+    pub symbols: HashMap<String, SymbolsResponseData>,
+}
+
+#[derive(
+    Clone,
+    Debug,
+    Default,
+    Eq,
+    PartialEq,
+    Serialize,
+    Deserialize,
+    Archive,
+    RkyvSerialize,
+    RkyvDeserialize,
+)]
+#[archive(check_bytes)]
+pub struct NlpPool {
+    pub pool_id: u64,
+    #[serde(
+        serialize_with = "serialize_bytes32",
+        deserialize_with = "deserialize_bytes32"
+    )]
+    pub subaccount: [u8; 32],
+    #[serde(
+        serialize_with = "serialize_bytes20",
+        deserialize_with = "deserialize_bytes20"
+    )]
+    pub owner: [u8; 20],
+    #[serde(
+        serialize_with = "serialize_u128",
+        deserialize_with = "deserialize_u128"
+    )]
+    pub balance_weight_x18: u128,
+    pub subaccount_info: SubaccountInfoResponse,
+    pub open_orders: Vec<OrderResponse>,
+}
+
+#[derive(
+    Clone,
+    Debug,
+    Default,
+    Eq,
+    PartialEq,
+    Serialize,
+    Deserialize,
+    Archive,
+    RkyvSerialize,
+    RkyvDeserialize,
+)]
+#[archive(check_bytes)]
+pub struct NlpPoolInfoResponse {
+    pub nlp_pools: Vec<NlpPool>,
+}
+
+#[derive(
+    Clone,
+    Debug,
+    Default,
+    Eq,
+    PartialEq,
+    Serialize,
+    Deserialize,
+    Archive,
+    RkyvSerialize,
+    RkyvDeserialize,
+)]
+#[archive(check_bytes)]
+pub struct NlpLockedBalance {
+    pub balance: SpotBalance,
+    pub unlocked_at: u64,
+}
+
+#[derive(
+    Clone,
+    Debug,
+    Default,
+    Eq,
+    PartialEq,
+    Serialize,
+    Deserialize,
+    Archive,
+    RkyvSerialize,
+    RkyvDeserialize,
+)]
+#[archive(check_bytes)]
+pub struct NlpLockedBalancesResponse {
+    pub balance_locked: SpotBalance,
+    pub balance_unlocked: SpotBalance,
+    pub locked_balances: Vec<NlpLockedBalance>,
+}
+
+#[derive(
+    Clone,
+    Debug,
+    Default,
+    Eq,
+    PartialEq,
+    Serialize,
+    Deserialize,
+    Archive,
+    RkyvSerialize,
+    RkyvDeserialize,
+)]
+#[archive(check_bytes)]
+pub struct SymbolsResponseData {
+    #[serde(rename = "type")]
+    pub product_type: String,
+    pub product_id: u32,
+    pub symbol: String,
+    #[serde(
+        serialize_with = "serialize_i128",
+        deserialize_with = "deserialize_i128"
+    )]
+    pub price_increment_x18: i128,
+    #[serde(
+        serialize_with = "serialize_i128",
+        deserialize_with = "deserialize_i128"
+    )]
+    pub size_increment: i128,
+    #[serde(
+        serialize_with = "serialize_i128",
+        deserialize_with = "deserialize_i128"
+    )]
+    pub min_size: i128,
+    #[serde(
+        serialize_with = "serialize_i128",
+        deserialize_with = "deserialize_i128"
+    )]
+    pub maker_fee_rate_x18: i128,
+    #[serde(
+        serialize_with = "serialize_i128",
+        deserialize_with = "deserialize_i128"
+    )]
+    pub taker_fee_rate_x18: i128,
+    #[serde(
+        serialize_with = "serialize_i128",
+        deserialize_with = "deserialize_i128"
+    )]
+    pub long_weight_initial_x18: i128,
+    #[serde(
+        serialize_with = "serialize_i128",
+        deserialize_with = "deserialize_i128"
+    )]
+    pub long_weight_maintenance_x18: i128,
+    pub max_open_interest_x18: Option<WrappedI128>,
+    #[serde(default)]
+    pub trading_status: TradingStatus,
+    #[serde(default)]
+    pub isolated_only: bool,
+}
+
+impl SymbolsResponseData {
+    pub fn placeholder() -> Self {
+        Self {
+            product_type: "placeholder".to_string(),
+            ..Self::default()
+        }
+    }
+}
+
+impl From<&Product> for SymbolsResponseData {
+    fn from(product: &Product) -> Self {
+        let product_type = match product {
+            Product::Spot { .. } => "spot",
+            Product::Perp { .. } => "perp",
+        }
+        .to_string();
+        let max_open_interest = product.max_open_interest().and_then(|oi| {
+            if oi == 0 {
+                None
+            } else {
+                Some(WrappedI128(oi))
+            }
+        });
+
+        match product {
+            Product::Spot {
+                symbol,
+                long_weight_initial_x18,
+                long_weight_maintenance_x18,
+                size_increment_x18,
+                price_increment_x18,
+                min_size_x18,
+                product_id,
+                ..
+            }
+            | Product::Perp {
+                symbol,
+                long_weight_initial_x18,
+                long_weight_maintenance_x18,
+                size_increment_x18,
+                price_increment_x18,
+                min_size_x18,
+                product_id,
+                ..
+            } => SymbolsResponseData {
+                product_type,
+                product_id: *product_id,
+                symbol: symbol.clone(),
+                price_increment_x18: *price_increment_x18,
+                min_size: *min_size_x18,
+                size_increment: *size_increment_x18,
+                long_weight_initial_x18: *long_weight_initial_x18,
+                long_weight_maintenance_x18: *long_weight_maintenance_x18,
+                max_open_interest_x18: max_open_interest,
+                ..Self::default()
+            },
+        }
+    }
+}
+
+#[derive(
+    Clone,
+    Debug,
+    Default,
+    Eq,
+    PartialEq,
+    Serialize,
+    Deserialize,
+    Archive,
+    RkyvSerialize,
+    RkyvDeserialize,
+)]
+#[archive(check_bytes)]
+pub struct IsolatedPosition {
+    #[serde(
+        serialize_with = "serialize_bytes32",
+        deserialize_with = "deserialize_bytes32"
+    )]
+    pub subaccount: [u8; 32],
+    pub quote_balance: SpotBalance,
+    pub base_balance: PerpBalance,
+    pub quote_product: SpotProduct,
+    pub base_product: PerpProduct,
+    #[serde(
+        serialize_with = "serialize_vec_i128",
+        deserialize_with = "deserialize_vec_i128"
+    )]
+    pub quote_healths: Vec<i128>,
+    #[serde(
+        serialize_with = "serialize_vec_i128",
+        deserialize_with = "deserialize_vec_i128"
+    )]
+    pub base_healths: Vec<i128>,
+    pub healths: Vec<HealthInfo>,
+}
+
+#[derive(
+    Clone,
+    Debug,
+    Default,
+    Eq,
+    PartialEq,
+    Serialize,
+    Deserialize,
+    Archive,
+    RkyvSerialize,
+    RkyvDeserialize,
+)]
+#[archive(check_bytes)]
+pub struct IsolatedPositionsResponse {
+    pub isolated_positions: Vec<IsolatedPosition>,
+}
+
+#[derive(
+    Clone,
+    Debug,
+    Default,
+    Eq,
+    PartialEq,
+    Serialize,
+    Deserialize,
+    Archive,
+    RkyvSerialize,
+    RkyvDeserialize,
+)]
+#[archive(check_bytes)]
+// #[ts(export)]
+// #[ts(export_to = "tsBindings/msgResponses/")]
+pub struct PriceLevel(
+    #[serde(
+        serialize_with = "serialize_i128",
+        deserialize_with = "deserialize_i128"
+    )]
+    // #[ts(type = "BigNumberish")]
+    pub  i128,
+    #[serde(
+        serialize_with = "serialize_i128",
+        deserialize_with = "deserialize_i128"
+    )]
+    // #[ts(type = "BigNumberish")]
+    pub  i128,
+);
+
+#[derive(
+    Clone,
+    Debug,
+    Default,
+    Eq,
+    PartialEq,
+    Serialize,
+    Deserialize,
+    Archive,
+    RkyvSerialize,
+    RkyvDeserialize,
+)]
+#[archive(check_bytes)]
+// #[ts(export)]
+// #[ts(export_to = "tsBindings/msgResponses/")]
+pub struct MarketLiquidityResponse {
+    pub bids: Vec<PriceLevel>,
+    pub asks: Vec<PriceLevel>,
+    pub product_id: u32,
+    #[serde(serialize_with = "serialize_u64", deserialize_with = "deserialize_u64")]
+    pub timestamp: u64,
+}
+
+#[derive(
+    Archive, RkyvDeserialize, RkyvSerialize, Clone, Debug, Eq, PartialEq, Serialize, Deserialize,
+)]
+#[archive(check_bytes)]
+// #[ts(export)]
+// #[ts(export_to = "tsBindings/msgResponses/")]
+#[serde(rename_all = "snake_case")]
+pub enum Status {
+    Success,
+    Failure,
+}
+
+#[derive(
+    Archive,
+    RkyvDeserialize,
+    RkyvSerialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    PartialEq,
+    Serialize,
+    Deserialize,
+    Default,
+)]
+#[archive(check_bytes)]
+#[serde(rename_all = "snake_case")]
+pub enum TradingStatus {
+    #[default]
+    Live,
+    PostOnly,
+    NotTradable,
+    ReduceOnly,
+    SoftReduceOnly,
+}
+
+impl FromStr for TradingStatus {
+    type Err = eyre::Report;
+
+    fn from_str(trading_status: &str) -> Result<Self> {
+        match trading_status.to_lowercase().as_str() {
+            "live" => Ok(Self::Live),
+            "post_only" => Ok(Self::PostOnly),
+            "reduce_only" => Ok(Self::ReduceOnly),
+            "not_tradable" => Ok(Self::NotTradable),
+            "soft_reduce_only" => Ok(Self::SoftReduceOnly),
+            _ => Err(eyre!("Invalid trading status: {trading_status}")),
+        }
+    }
+}
+
+impl std::fmt::Display for TradingStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            TradingStatus::Live => "live",
+            TradingStatus::PostOnly => "post_only",
+            TradingStatus::ReduceOnly => "reduce_only",
+            TradingStatus::NotTradable => "not_tradable",
+            TradingStatus::SoftReduceOnly => "soft_reduce_only",
+        };
+        write!(f, "{s}")
+    }
+}
+
+#[derive(
+    Archive, RkyvDeserialize, RkyvSerialize, Clone, Debug, Eq, PartialEq, Serialize, Deserialize,
+)]
+#[archive(check_bytes)]
+// #[ts(export)]
+// #[ts(export_to = "tsBindings/msgResponses/")]
+#[serde(rename_all = "snake_case")]
+pub enum EngineStatus {
+    Started,
+    // just started, not syncing yet
+    Active,
+    // accepting incoming executes
+    Stopping,
+    // active engine is winding down
+    Syncing,
+    // currently syncing historical txs from the chain
+    LiveSyncing,
+    // done syncing historical txs; now
+    // syncing live writes from primary engine
+    Failed, // sequencer is in a failed state
+}
+
+impl From<EngineStatus> for u8 {
+    fn from(status: EngineStatus) -> Self {
+        match status {
+            EngineStatus::Started => 0,
+            EngineStatus::Active => 1,
+            EngineStatus::Stopping => 2,
+            EngineStatus::Syncing => 3,
+            EngineStatus::LiveSyncing => 4,
+            EngineStatus::Failed => 5,
+        }
+    }
+}
+
+impl From<u8> for EngineStatus {
+    fn from(status: u8) -> Self {
+        match status {
+            0 => EngineStatus::Started,
+            1 => EngineStatus::Active,
+            2 => EngineStatus::Stopping,
+            3 => EngineStatus::Syncing,
+            4 => EngineStatus::LiveSyncing,
+            5 => EngineStatus::Failed,
+            _ => panic!("Invalid EngineStatus"),
+        }
+    }
+}
+
+impl From<EngineStatus> for AtomicU8 {
+    fn from(status: EngineStatus) -> Self {
+        AtomicU8::new(status.into())
+    }
+}
+
+impl From<AtomicU8> for EngineStatus {
+    fn from(status: AtomicU8) -> Self {
+        EngineStatus::from(status.load(Ordering::Relaxed))
+    }
+}
+
+#[derive(
+    Archive, RkyvDeserialize, RkyvSerialize, Clone, Debug, Eq, PartialEq, Serialize, Deserialize,
+)]
+#[archive(check_bytes)]
+// #[ts(export)]
+// #[ts(export_to = "tsBindings/msgResponses/")]
+#[serde(rename_all = "snake_case")]
+#[serde(untagged)]
+pub enum QueryResponseData {
+    StatusResponse(EngineStatus),
+    Contracts(ContractsResponse),
+    FeeRates(FeeRatesResponse),
+    Nonces(NoncesResponse),
+    LinkedSigner(LinkedSignerResponse),
+    SubaccountInfo(SubaccountInfoResponse),
+    MarketPrice(MarketPriceResponse),
+    MarketPrices(MarketPricesResponse),
+    Order(OrderResponse),
+    Orders(OrdersResponse),
+    ValidateOrder(ValidateOrderResponse),
+    SubaccountOrders(SubaccountOrdersResponse),
+    MarketLiquidity(MarketLiquidityResponse),
+    AllProducts(AllProductsResponse),
+    EdgeAllProducts(EdgeAllProductsResponse),
+    MaxOrderSize(MaxOrderSizeResponse),
+    MaxWithdrawable(MaxWithdrawableResponse),
+    MaxNlpMintable(MaxNlpMintableResponse),
+    MaxNlpBurnable(MaxNlpBurnableResponse),
+    HealthGroups(HealthGroupsResponse),
+    Insurance(InsuranceResponse),
+    Symbols(SymbolsResponse),
+    IsolatedPositions(IsolatedPositionsResponse),
+    NlpPoolInfo(NlpPoolInfoResponse),
+    NlpLockedBalances(NlpLockedBalancesResponse),
+    Error(String),
+}
+
+#[derive(
+    Archive, RkyvDeserialize, RkyvSerialize, Clone, Debug, Eq, PartialEq, Serialize, Deserialize,
+)]
+#[archive(check_bytes)]
+// #[ts(export)]
+// #[ts(export_to = "tsBindings/msgResponses/")]
+#[serde(rename_all = "snake_case")]
+pub struct QueryResponse {
+    pub status: Status,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data: Option<QueryResponseData>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error_code: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub request_type: Option<String>,
+}
+
+#[derive(
+    Archive, RkyvDeserialize, RkyvSerialize, Clone, Debug, Eq, PartialEq, Serialize, Deserialize,
+)]
+#[archive(check_bytes)]
+// #[ts(export)]
+// #[ts(export_to = "tsBindings/msgResponses/")]
+pub struct ExecuteResponse {
+    pub status: Status,
+    #[serde(
+        serialize_with = "serialize_option_vec_u8",
+        deserialize_with = "deserialize_option_vec_u8"
+    )]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
+    pub signature: Option<Vec<u8>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
+    pub id: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data: Option<ExecuteResponseData>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error_code: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub request_type: Option<String>,
+}
+
+#[derive(
+    Archive, RkyvDeserialize, RkyvSerialize, Clone, Debug, Eq, PartialEq, Serialize, Deserialize,
+)]
+#[archive(check_bytes)]
+#[serde(untagged)]
+#[serde(rename_all = "snake_case")]
+pub enum ExecuteResponseData {
+    PlaceOrder(PlaceOrderResponse),
+    PlaceOrders(PlaceOrdersResponse),
+    CancelOrders(CancelOrdersResponse),
+    CancelProductOrders(CancelOrdersResponse),
+}
+
+#[derive(
+    Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Archive, RkyvSerialize, RkyvDeserialize,
+)]
+#[archive(check_bytes)]
+pub struct CancelOrdersResponse {
+    pub cancelled_orders: Vec<OrderResponse>,
+}
+
+#[derive(
+    Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Archive, RkyvSerialize, RkyvDeserialize,
+)]
+#[archive(check_bytes)]
+pub struct PlaceOrderResponse {
+    #[serde(
+        serialize_with = "serialize_bytes32",
+        deserialize_with = "deserialize_bytes32"
+    )]
+    pub digest: [u8; 32],
+}
+
+#[derive(
+    Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Archive, RkyvSerialize, RkyvDeserialize,
+)]
+#[archive(check_bytes)]
+pub struct PlaceOrdersItemResponse {
+    #[serde(
+        serialize_with = "serialize_option_bytes32",
+        deserialize_with = "deserialize_option_bytes32"
+    )]
+    pub digest: Option<[u8; 32]>,
+    pub error: Option<String>,
+}
+
+pub type PlaceOrdersResponse = Vec<PlaceOrdersItemResponse>;
+
+#[derive(
+    Archive, RkyvDeserialize, RkyvSerialize, Clone, Debug, Eq, PartialEq, Serialize, Deserialize,
+)]
+#[serde(untagged)]
+#[archive(check_bytes)]
+#[allow(clippy::large_enum_variant)]
+pub enum EngineResponse {
+    Query(QueryResponse),
+    Execute(ExecuteResponse),
+}
+
+#[derive(Archive, RkyvDeserialize, RkyvSerialize, Serialize, Deserialize, Debug, Clone)]
+#[archive(check_bytes)]
+#[serde(rename_all = "snake_case")]
+// #[ts(export)]
+// #[ts(export_to = "tsBindings/msg/")]
+pub enum QueryV2 {
+    Orderbook(OrderbookParams),
+
+    Pairs(MarketPairsParams),
+
+    Assets {},
+
+    Apr {},
+}
+
+#[derive(Archive, RkyvDeserialize, RkyvSerialize, Clone, Serialize, Deserialize, Debug)]
+#[archive(check_bytes)]
+#[serde(rename_all = "snake_case")]
+pub struct OrderbookParams {
+    pub ticker_id: String,
+    #[serde(deserialize_with = "str_or_u32")]
+    pub depth: u32,
+}
+
+#[derive(Archive, RkyvDeserialize, RkyvSerialize, Clone, Serialize, Deserialize, Debug)]
+#[archive(check_bytes)]
+#[serde(rename_all = "snake_case")]
+pub struct MarketPairsParams {
+    pub market: Option<String>,
+}
+
+#[derive(
+    Clone,
+    Debug,
+    Default,
+    PartialEq,
+    Serialize,
+    Deserialize,
+    Archive,
+    RkyvSerialize,
+    RkyvDeserialize,
+)]
+#[archive(check_bytes)]
+pub struct OrderbookPriceLevel(pub f64, pub f64);
+
+#[derive(
+    Clone,
+    Debug,
+    Default,
+    PartialEq,
+    Serialize,
+    Deserialize,
+    Archive,
+    RkyvSerialize,
+    RkyvDeserialize,
+)]
+#[archive(check_bytes)]
+// #[ts(export)]
+// #[ts(export_to = "tsBindings/msgResponses/")]
+pub struct OrderbookResponse {
+    pub product_id: u32,
+    pub ticker_id: String,
+    pub bids: Vec<OrderbookPriceLevel>,
+    pub asks: Vec<OrderbookPriceLevel>,
+    pub timestamp: u64,
+}
+
+#[derive(
+    Clone,
+    Debug,
+    Default,
+    Eq,
+    PartialEq,
+    Serialize,
+    Deserialize,
+    Archive,
+    RkyvSerialize,
+    RkyvDeserialize,
+)]
+#[archive(check_bytes)]
+// #[ts(export)]
+// #[ts(export_to = "tsBindings/msgResponses/")]
+pub struct MarketPair {
+    pub product_id: u32,
+    pub ticker_id: String,
+    pub base: String,
+    pub quote: String,
+}
+
+pub type MarketPairsResponse = Vec<MarketPair>;
+
+#[derive(
+    Clone, Debug, Default, Serialize, Deserialize, Archive, RkyvSerialize, RkyvDeserialize,
+)]
+#[archive(check_bytes)]
+pub struct MarketApr {
+    pub name: String,
+    pub symbol: String,
+    pub product_id: u32,
+    pub deposit_apr: f64,
+    pub borrow_apr: f64,
+    pub tvl: f64,
+}
+
+pub type MarketsAprResponse = Vec<MarketApr>;
+
+#[derive(
+    Clone,
+    Debug,
+    Default,
+    PartialEq,
+    Serialize,
+    Deserialize,
+    Archive,
+    RkyvSerialize,
+    RkyvDeserialize,
+)]
+#[archive(check_bytes)]
+// #[ts(export)]
+// #[ts(export_to = "tsBindings/msgResponses/")]
+pub struct Asset {
+    pub product_id: u32,
+    pub ticker_id: Option<String>,
+    pub market_type: Option<String>,
+    pub name: String,
+    pub symbol: String,
+    pub maker_fee: Option<f64>,
+    pub taker_fee: Option<f64>,
+    pub can_withdraw: bool,
+    pub can_deposit: bool,
+}
+
+pub type AssetsResponse = Vec<Asset>;
