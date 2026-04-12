@@ -25,7 +25,9 @@ use nado_sdk::prelude::{
     ClientMode, NadoClient, NadoIndexer, NadoQuery, Stream, SubscriptionsClient,
     SubscriptionsConfig,
 };
-use ratchet_rs::deflate::DeflateExtProvider;
+use ratchet_rs::deflate::{
+    Deflate, DeflateDecoder, DeflateExtProvider, DeflateExtensionError,
+};
 use ratchet_rs::{Message as WsMessage, SubprotocolRegistry, WebSocketConfig, subscribe_with};
 use rustls::pki_types::ServerName;
 use serde::{Deserialize, Serialize};
@@ -547,7 +549,7 @@ where
         WebSocketConfig::default(),
         stream,
         ws_url,
-        &DeflateExtProvider::default(),
+        &InboundOnlyDeflateProvider::default(),
         SubprotocolRegistry::default(),
     )
     .await
@@ -693,6 +695,113 @@ where
 enum UpstreamStream {
     Plain(tokio::net::TcpStream),
     Tls(TlsStream<tokio::net::TcpStream>),
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct InboundOnlyDeflateProvider {
+    inner: DeflateExtProvider,
+}
+
+impl ratchet_rs::ExtensionProvider for InboundOnlyDeflateProvider {
+    type Extension = InboundOnlyDeflate;
+    type Error = DeflateExtensionError;
+
+    fn apply_headers(&self, headers: &mut ratchet_rs::HeaderMap) {
+        self.inner.apply_headers(headers);
+    }
+
+    fn negotiate_client(
+        &self,
+        headers: &ratchet_rs::HeaderMap,
+    ) -> std::result::Result<Option<Self::Extension>, Self::Error> {
+        self.inner
+            .negotiate_client(headers)
+            .map(|ext| ext.map(InboundOnlyDeflate))
+    }
+
+    fn negotiate_server(
+        &self,
+        headers: &ratchet_rs::HeaderMap,
+    ) -> std::result::Result<Option<(Self::Extension, ratchet_rs::HeaderValue)>, Self::Error> {
+        self.inner.negotiate_server(headers).map(|maybe| {
+            maybe.map(|(ext, header)| (InboundOnlyDeflate(ext), header))
+        })
+    }
+}
+
+#[derive(Debug)]
+struct InboundOnlyDeflate(Deflate);
+
+impl ratchet_rs::Extension for InboundOnlyDeflate {
+    fn bits(&self) -> ratchet_rs::RsvBits {
+        self.0.bits()
+    }
+}
+
+impl ratchet_rs::ExtensionEncoder for InboundOnlyDeflate {
+    type Error = DeflateExtensionError;
+
+    fn encode(
+        &mut self,
+        _payload: &mut BytesMut,
+        _header: &mut ratchet_rs::FrameHeader,
+    ) -> std::result::Result<(), Self::Error> {
+        // Upstream requires permessage-deflate negotiation but rejects compressed client payloads.
+        // Keep outbound frames uncompressed while still decoding compressed inbound frames.
+        Ok(())
+    }
+}
+
+impl ratchet_rs::ExtensionDecoder for InboundOnlyDeflate {
+    type Error = DeflateExtensionError;
+
+    fn decode(
+        &mut self,
+        payload: &mut BytesMut,
+        header: &mut ratchet_rs::FrameHeader,
+    ) -> std::result::Result<(), Self::Error> {
+        self.0.decode(payload, header)
+    }
+}
+
+impl ratchet_rs::SplittableExtension for InboundOnlyDeflate {
+    type SplitEncoder = InboundOnlyDeflateEncoder;
+    type SplitDecoder = InboundOnlyDeflateDecoder;
+
+    fn split(self) -> (Self::SplitEncoder, Self::SplitDecoder) {
+        let (_encoder, decoder) = self.0.split();
+        (InboundOnlyDeflateEncoder, InboundOnlyDeflateDecoder(decoder))
+    }
+}
+
+#[derive(Debug)]
+struct InboundOnlyDeflateEncoder;
+
+impl ratchet_rs::ExtensionEncoder for InboundOnlyDeflateEncoder {
+    type Error = DeflateExtensionError;
+
+    fn encode(
+        &mut self,
+        _payload: &mut BytesMut,
+        _header: &mut ratchet_rs::FrameHeader,
+    ) -> std::result::Result<(), Self::Error> {
+        Ok(())
+    }
+}
+
+#[derive(Debug)]
+struct InboundOnlyDeflateDecoder(DeflateDecoder);
+
+impl ratchet_rs::ExtensionDecoder for InboundOnlyDeflateDecoder {
+    type Error = DeflateExtensionError;
+
+    fn decode(
+        &mut self,
+        payload: &mut BytesMut,
+        header: &mut ratchet_rs::FrameHeader,
+    ) -> std::result::Result<(), Self::Error> {
+        self.0.decode(payload, header)
+    }
 }
 
 async fn connect_upstream_stream(ws_url: &str) -> Result<UpstreamStream> {
