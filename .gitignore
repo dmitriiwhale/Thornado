@@ -32,3 +32,6 @@ dist-ssr
 
 # Rust
 **/target/
+
+# Local Go build artifact
+gateway/gateway
